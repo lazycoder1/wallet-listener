@@ -20,14 +20,12 @@
 - **Alerts**
   - Post to Slack channel(s) for incoming native or token transfers, showing each address’s balance across all supported chains
 - **Data Organization**
-  - Separate workbooks/tabs per company
   - “Export to Excel/CSV” on demand
 
 **Non-Functional Requirements**
 
-- Scale to 2 k addresses across 4 networks using WebSocket subscriptions
+- Scale to 5 k addresses across 4 networks using WebSocket subscriptions
 - Resilient to connection drops with auto-reconnect/back-off
-- Configurable alert thresholds (e.g. only > 0.01 ETH)
 - Lightweight admin panel for configuration & monitoring
 
 **Tech Stack**
@@ -85,7 +83,8 @@
 | Sprint     | Focus            | Deliverables                                                                                         |
 |:----------:|:-----------------|:-----------------------------------------------------------------------------------------------------|
 | **Week 3** | Testing & QA     | - Unit & integration tests with mocked WS feeds  
-                                     - Load-test ingestion & subscriptions for 2 k addresses                                              |
+                                     - Load-test ingestion & subscriptions for 2 k addresses     
+                                      |
 
 ---
 
@@ -95,7 +94,7 @@
 |:----------:|:-------------------------------|:---------------------------------------------------------------------------------|
 | **Week 4** | Integrations & Refinements      | - Support multi-company Slack mapping  
                                         - Dedicated Slack channels per company  
-                                        - UI for alert thresholds & token-type filters  |
+                                        - Configurable alert thresholds (e.g. only > 0.01 ETH)|
 
 ---
 
