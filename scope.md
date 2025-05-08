@@ -1,4 +1,4 @@
-```markdown
+
 # Wallet Tracker Software: Scope & MVP Roadmap
 
 > **Timeline:** 2–2.5 weeks of active development by a single engineer, plus optional weeks 3–4 for testing, integrations, and refinements
@@ -119,4 +119,4 @@
 ---
 
 *This plan lays out a 2–2.5-week MVP for a single engineer, with optional weeks 3–4 for testing, integrations, and production hardening.*
-```
+
