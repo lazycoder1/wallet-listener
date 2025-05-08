@@ -82,10 +82,8 @@
 
 | Sprint     | Focus            | Deliverables                                                                                         |
 |:----------:|:-----------------|:-----------------------------------------------------------------------------------------------------|
-| **Week 3** | Testing & QA |
-|------------|--------------|
-|            | <ul><li>Unit & integration tests with mocked WS feeds</li><li>Load-test ingestion & subscriptions for 2 k addresses</li></ul> |
-                                  |
+| **Week 3** | Testing & QA |  <ul><li>Unit & integration tests with mocked WS feeds</li><li>Load-test ingestion & subscriptions for 2 k addresses</li></ul> |
+                                
 
 ---
 
