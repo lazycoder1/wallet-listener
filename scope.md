@@ -82,9 +82,10 @@
 
 | Sprint     | Focus            | Deliverables                                                                                         |
 |:----------:|:-----------------|:-----------------------------------------------------------------------------------------------------|
-| **Week 3** | Testing & QA     | - Unit & integration tests with mocked WS feeds  
-                                     - Load-test ingestion & subscriptions for 2 k addresses     
-                                      |
+| **Week 3** | Testing & QA |
+|------------|--------------|
+|            | <ul><li>Unit & integration tests with mocked WS feeds</li><li>Load-test ingestion & subscriptions for 2 k addresses</li></ul> |
+                                  |
 
 ---
 
@@ -92,9 +93,7 @@
 
 | Sprint     | Focus                          | Deliverables                                                                     |
 |:----------:|:-------------------------------|:---------------------------------------------------------------------------------|
-| **Week 4** | Integrations & Refinements      | - Support multi-company Slack mapping  
-                                        - Dedicated Slack channels per company  \n
-                                        - Configurable alert thresholds (e.g. only > 0.01 ETH) |
+| **Week 4** | Integrations & Refinements      | <ul><li>Support multi-company Slack mapping</li><li>Dedicated Slack channels per company</li><li>Configurable alert thresholds (e.g. only > 0.01 ETH)</li></ul> |
 
 ---
 
