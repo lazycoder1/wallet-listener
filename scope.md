@@ -15,8 +15,7 @@
   - 1 Tron network
 - **Real-Time Balance & Token Tracking & Connection Management**
   - Subscribe to on-chain events via WebSocket providers (Alchemy for EVM, TronGrid for Tron)
-  - Persist balance snapshots and incoming transfer events in PostgreSQL
-  - Implement reconnection with exponential back-off and heartbeat pings
+  - Implement reconnection to node if it fails
 - **Alerts**
   - Post to Slack channel(s) for incoming native or token transfers, showing each address’s balance across all supported chains
 - **Data Organization**
