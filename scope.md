@@ -108,9 +108,9 @@
 
 ## 6. Next Steps
 
-1. **Finalize Requirements:** Confirm chains, event types, alert rules, user roles.
-2. **Provisioning:** Obtain Alchemy & TronGrid WS keys, create Slack app/webhooks, provision PostgreSQL.
-3. **Kick-off Phase:** Assign tickets, set up CI/CD pipelines, schedule daily check-ins.
+1. **Finalize Requirements:** Scope refinement, timelines
+2. **Needed from client:** Access to AWS account or any place we can deploy server + database.
+3. **Kick-off Phase:**  schedule daily check-ins.
 
 ---
 
