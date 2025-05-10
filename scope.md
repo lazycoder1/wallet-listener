@@ -90,7 +90,7 @@
 
 | Sprint     | Focus                          | Deliverables                                                                     |
 |:----------:|:-------------------------------|:---------------------------------------------------------------------------------|
-| **Week 4** | Integrations & Refinements      | <ul><li>Support multi-company Slack mapping</li><li>Dedicated Slack channels per company</li><li>Configurable alert thresholds (e.g. only > 0.01 ETH)</li></ul> |
+| **Week 4** | Integrations & Refinements      | <ul><li>Support multi-company Slack mapping (manual)</li>><li>Configurable alert thresholds per company(e.g. only > 0.01 ETH)</li></ul> |
 
 ---
 
