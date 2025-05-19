@@ -1,0 +1,27 @@
+{
+    "name": "wallet-watcher",
+    "module": "index.ts",
+    "type": "module",
+    "scripts": {
+        "backend:dev": "cd backend && bun run dev"
+    },
+    "devDependencies": {
+        "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+        "@openzeppelin/contracts": "^5.3.0",
+        "@types/bun": "latest",
+        "@types/ws": "^8.18.1",
+        "hardhat": "^2.24.0",
+        "prisma": "^6.7.0"
+    },
+    "peerDependencies": {
+        "typescript": "^5.0.0"
+    },
+    "dependencies": {
+        "@fastify/cors": "^11.0.1",
+        "@prisma/client": "^6.7.0",
+        "@types/papaparse": "^5.3.16",
+        "fastify": "^5.3.3",
+        "papaparse": "^5.5.2",
+        "tronweb": "^6.0.3"
+    }
+}

@@ -1,0 +1,2 @@
+export const isValidEVMAddress = (address: string): boolean => /^0x[a-fA-F0-9]{40}$/.test(address);
+export const isValidTronAddress = (address: string): boolean => /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(address); 

@@ -1,0 +1,115 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Company {
+  id                   Int                    @id @default(autoincrement())
+  name                 String                 @unique
+  createdAt            DateTime               @default(now()) @map("created_at")
+  updatedAt            DateTime               @updatedAt @map("updated_at")
+  companyAddresses     CompanyAddress[]
+  importBatches        ImportBatch[]
+  slackConfiguration   SlackConfiguration?
+  alerts               Alert[]
+
+  @@map("companies")
+}
+
+model Address {
+  id               Int                @id @default(autoincrement())
+  address          String             @unique
+  chainType        String             @map("chain_type")
+  createdAt        DateTime           @default(now()) @map("created_at")
+  companyAddresses CompanyAddress[]
+  batchAddresses   BatchAddress[]
+  alerts           Alert[]
+
+  @@map("addresses")
+}
+
+model CompanyAddress {
+  id              Int       @id @default(autoincrement())
+  companyId       Int       @map("company_id")
+  addressId       Int       @map("address_id")
+  isActive        Boolean   @default(true) @map("is_active")
+  lastBalance     Decimal?  @map("last_balance")
+  lastCheckedAt   DateTime? @map("last_checked_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  company         Company   @relation(fields: [companyId], references: [id])
+  address         Address   @relation(fields: [addressId], references: [id])
+
+  @@unique([companyId, addressId], name: "uq_company_address")
+  @@map("company_addresses")
+}
+
+model ImportBatch {
+  id                 Int            @id @default(autoincrement())
+  companyId          Int            @map("company_id")
+  importMode         String         @map("import_mode")
+  originalFilename   String?        @map("original_filename")
+  totalRows          Int            @map("total_rows")
+  validRowsCount     Int            @map("valid_rows_count")
+  invalidRowsCount   Int            @map("invalid_rows_count")
+  importedAt         DateTime       @default(now()) @map("imported_at")
+  rawFilePath        String?        @map("raw_file_path")
+  company            Company        @relation(fields: [companyId], references: [id])
+  batchAddresses     BatchAddress[]
+
+  @@map("import_batches")
+}
+
+model BatchAddress {
+  id           Int      @id @default(autoincrement())
+  batchId      Int      @map("batch_id")
+  addressId    Int      @map("address_id")
+  rowData      Json?    @map("row_data")
+  isValid      Boolean  @map("is_valid")
+  processedAt  DateTime @default(now()) @map("processed_at")
+  importBatch  ImportBatch @relation(fields: [batchId], references: [id])
+  address      Address  @relation(fields: [addressId], references: [id])
+
+  @@unique([batchId, addressId], name: "uq_batch_address")
+  @@map("batch_addresses")
+}
+
+model SlackConfiguration {
+  id                   Int      @id @default(autoincrement())
+  companyId            Int      @unique @map("company_id")
+  webhookUrl           String   @map("webhook_url")
+  channelName          String?  @map("channel_name")
+  organizationDetails  String?  @map("organization_details")
+  alertThreshold       Decimal  @default(0) @map("alert_threshold")
+  isEnabled            Boolean  @default(true) @map("is_enabled")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+  company              Company  @relation(fields: [companyId], references: [id])
+
+  @@map("slack_configurations")
+}
+
+model Alert {
+  id               Int      @id @default(autoincrement())
+  companyId        Int      @map("company_id")
+  addressId        Int      @map("address_id")
+  transactionHash  String   @map("transaction_hash")
+  amount           Decimal
+  tokenSymbol      String?  @map("token_symbol")
+  alertSentAt      DateTime @default(now()) @map("alert_sent_at")
+  slackMessageId   String?  @map("slack_message_id")
+  company          Company  @relation(fields: [companyId], references: [id])
+  address          Address  @relation(fields: [addressId], references: [id])
+
+  @@map("alerts")
+}
