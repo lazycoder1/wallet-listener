@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Papa, { ParseResult } from 'papaparse';
 
 // Define types for what we expect from the backend
@@ -8,15 +8,44 @@ interface BackendImportResponse {
   message: string;
   batchId: number;
   companyId: number;
-  companyName: string;
+  companyName?: string; // Re-added for frontend summary display purposes
   mode: string;
   totalSubmitted: number;
   validAddresses: number;
   invalidAddresses: number;
 }
 
+// Add interface for parsed address with threshold
+interface ParsedAddress {
+  address: string;
+  chain_type: 'EVM' | 'TRON';
+  threshold?: number;
+}
+
+// Define a type for the Company data we expect from the /companies endpoint
+interface CompanyWithSlackConfig {
+  id: number;
+  name: string;
+  slackConfiguration?: {
+    channelId?: string | null;
+    isEnabled?: boolean;
+    // Add other slack config fields if needed for filtering/display
+  } | null;
+  // Add other company fields if needed
+}
+
 export default function UploadPage() {
-  const [companyName, setCompanyName] = useState('');
+  // const [companyName, setCompanyName] = useState(''); // Replaced by selectedCompanyId
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string>(''); // Store as string for select, parse to int on submit
+  const [allCompanies, setAllCompanies] = useState<CompanyWithSlackConfig[]>(
+    []
+  );
+  const [filteredCompanies, setFilteredCompanies] = useState<
+    CompanyWithSlackConfig[]
+  >([]);
+  const [companiesLoading, setCompaniesLoading] = useState<boolean>(true);
+  const [companiesError, setCompaniesError] = useState<string | null>(null);
+
   const [threshold, setThreshold] = useState('');
   const [mode, setMode] = useState('REPLACE');
   const [file, setFile] = useState<File | null>(null);
@@ -25,6 +54,40 @@ export default function UploadPage() {
   const [uploadSummary, setUploadSummary] =
     useState<BackendImportResponse | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
+
+  const API_BASE_URL =
+    process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3001';
+
+  useEffect(() => {
+    const fetchCompanies = async () => {
+      setCompaniesLoading(true);
+      setCompaniesError(null);
+      try {
+        const response = await fetch(`${API_BASE_URL}/companies`);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch companies: ${response.statusText}`);
+        }
+        const data: CompanyWithSlackConfig[] = await response.json();
+        setAllCompanies(data);
+
+        // Filter companies that have Slack configured and enabled
+        const slackConfiguredCompanies = data.filter(
+          (company) =>
+            company.slackConfiguration &&
+            company.slackConfiguration.channelId && // Ensure channelId is present
+            company.slackConfiguration.isEnabled // Ensure Slack is enabled
+        );
+        setFilteredCompanies(slackConfiguredCompanies);
+      } catch (error: any) {
+        console.error('Error fetching companies:', error);
+        setCompaniesError(error.message || 'Could not load companies.');
+      } finally {
+        setCompaniesLoading(false);
+      }
+    };
+
+    fetchCompanies();
+  }, [API_BASE_URL]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -46,12 +109,10 @@ export default function UploadPage() {
     return { valid: false, chain: null };
   };
 
-  const API_BASE_URL =
-    process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3001';
-
   const handleUploadAndSubmit = async () => {
-    if (!file || !companyName.trim()) {
-      setApiError('Company Name and File are required.');
+    if (!file || !selectedCompanyId) {
+      // Changed from companyName
+      setApiError('Company and File are required.');
       return;
     }
 
@@ -64,18 +125,31 @@ export default function UploadPage() {
       header: true,
       skipEmptyLines: true,
       complete: async (results: ParseResult<any>) => {
-        const parsedAddresses: {
-          address: string;
-          chain_type: 'EVM' | 'TRON';
-        }[] = [];
+        const parsedAddresses: ParsedAddress[] = [];
         const clientSideInvalidRows: any[] = [];
+        const companyThreshold = threshold ? parseFloat(threshold) : undefined;
 
         results.data.forEach((row: any) => {
-          const address = row.address?.trim();
-          if (!address) return;
-          const { valid, chain } = validateAddressClientSide(address);
+          const rawAddress = row.address?.trim();
+          if (!rawAddress) return;
+          const { valid, chain } = validateAddressClientSide(rawAddress);
           if (valid && chain) {
-            parsedAddresses.push({ address, chain_type: chain });
+            // Try to get threshold from CSV, fallback to company threshold
+            const addressThreshold = row.threshold
+              ? parseFloat(row.threshold)
+              : companyThreshold;
+
+            let finalAddress = rawAddress;
+            if (chain === 'EVM') {
+              finalAddress = rawAddress.toLowerCase();
+            }
+            // For TRON, we use the trimmed address as is.
+
+            parsedAddresses.push({
+              address: finalAddress,
+              chain_type: chain,
+              threshold: addressThreshold,
+            });
           } else {
             clientSideInvalidRows.push(row);
           }
@@ -94,11 +168,16 @@ export default function UploadPage() {
         }
 
         const requestBody = {
-          companyName: companyName.trim(),
+          // companyName: companyName.trim(), // To be replaced by companyId
+          companyId: parseInt(selectedCompanyId, 10), // Send companyId
           mode: mode.toUpperCase(),
           addresses: parsedAddresses,
           original_filename: file.name,
+          // companyThreshold: companyThreshold, // This was specific to the old setup, review if needed
         };
+
+        // Note: The backend needs to be updated to accept companyId instead of companyName
+        // and to handle the threshold logic appropriately if companyThreshold is removed or changed.
 
         try {
           const response = await fetch(`${API_BASE_URL}/imports`, {
@@ -123,6 +202,14 @@ export default function UploadPage() {
             setUploadSummary(null);
           } else {
             setUploadSummary(responseData as BackendImportResponse);
+            // Update company name in summary from the selected company, if needed
+            const selectedCompany = allCompanies.find(
+              (c) => c.id === parseInt(selectedCompanyId, 10)
+            );
+            if (selectedCompany && responseData) {
+              (responseData as BackendImportResponse).companyName =
+                selectedCompany.name;
+            }
             setApiError(null);
           }
         } catch (error: any) {
@@ -146,27 +233,64 @@ export default function UploadPage() {
   return (
     <div className='container mx-auto p-4'>
       <h1 className='text-2xl font-bold mb-4'>Upload Addresses to Backend</h1>
+
       <div className='mb-4'>
-        <label className='block mb-2'>Company Name</label>
-        <input
-          type='text'
-          value={companyName}
-          onChange={(e) => setCompanyName(e.target.value)}
-          className='border p-2 w-full'
-          placeholder='Enter Company Name'
-        />
+        <label htmlFor='companyIdSelect' className='block mb-2'>
+          Company
+        </label>
+        {companiesLoading && <p>Loading companies...</p>}
+        {companiesError && <p className='text-red-500'>{companiesError}</p>}
+        {!companiesLoading && !companiesError && (
+          <select
+            id='companyIdSelect'
+            value={selectedCompanyId}
+            onChange={(e) => setSelectedCompanyId(e.target.value)}
+            className='border p-2 w-full'
+            disabled={filteredCompanies.length === 0}
+          >
+            <option value=''>
+              {filteredCompanies.length === 0
+                ? 'No companies with Slack configured found'
+                : '-- Select a Company --'}
+            </option>
+            {filteredCompanies.map((company) => (
+              <option key={company.id} value={company.id}>
+                {company.name} (ID: {company.id})
+              </option>
+            ))}
+          </select>
+        )}
+        {!companiesLoading &&
+          filteredCompanies.length === 0 &&
+          !companiesError && (
+            <p className='text-sm text-yellow-700 mt-1'>
+              No companies with active Slack configurations (Channel ID set and
+              enabled) were found. Please configure Slack for a company before
+              uploading addresses for it.
+            </p>
+          )}
       </div>
-      <div className='mb-4'>
+
+      {/* Threshold input can remain if it's still relevant as a CSV column override */}
+      {/* <div className='mb-4'>
         <label className='block mb-2'>
-          Threshold (currently not used by import)
+          Company Default Threshold (used if CSV doesn't specify threshold)
         </label>
         <input
           type='number'
           value={threshold}
           onChange={(e) => setThreshold(e.target.value)}
           className='border p-2 w-full'
+          placeholder='Enter default threshold for all addresses'
+          min='0'
+          step='0.000000000000000001'
         />
-      </div>
+        <p className='text-sm text-gray-500 mt-1'>
+          This threshold will be used for addresses that don't have a threshold
+          specified in the CSV. If left empty, no default threshold will be set.
+        </p>
+      </div> */}
+
       <div className='mb-4'>
         <label className='block mb-2'>Mode</label>
         <select
@@ -191,7 +315,13 @@ export default function UploadPage() {
       </div>
       <button
         onClick={handleUploadAndSubmit}
-        disabled={!file || isProcessing || !companyName.trim()}
+        disabled={
+          !file ||
+          isProcessing ||
+          !selectedCompanyId ||
+          companiesLoading ||
+          filteredCompanies.length === 0
+        }
         className='bg-blue-500 text-white p-2 rounded disabled:bg-gray-400'
       >
         {isProcessing
@@ -206,13 +336,22 @@ export default function UploadPage() {
         </div>
       )}
 
+      {/* Displaying companyName in summary needs to be handled carefully as it's not directly in BackendImportResponse now */}
       {uploadSummary && (
         <div className='mt-4 p-4 bg-green-100 text-green-700 rounded'>
           <h2 className='font-bold'>Backend Import Summary</h2>
           <p>Message: {uploadSummary.message}</p>
           <p>Batch ID: {uploadSummary.batchId}</p>
           <p>Company ID: {uploadSummary.companyId}</p>
-          <p>Company Name: {uploadSummary.companyName}</p>
+          {/* <p>Company Name: {uploadSummary.companyName}</p> */}
+          {(() => {
+            const companyDetails = allCompanies.find(
+              (c) => c.id === uploadSummary.companyId
+            );
+            return companyDetails ? (
+              <p>Company Name: {companyDetails.name}</p>
+            ) : null;
+          })()}
           <p>Mode: {uploadSummary.mode}</p>
           <p>Total Submitted by Client: {uploadSummary.totalSubmitted}</p>
           <p>Valid Addresses (by backend): {uploadSummary.validAddresses}</p>
@@ -223,24 +362,17 @@ export default function UploadPage() {
       )}
 
       {displayedInvalidRows.length > 0 && (
-        <div className='mt-4'>
-          <h2 className='font-bold'>Client-Side Invalid Rows (First 10)</h2>
-          <table className='w-full border'>
-            <thead>
-              <tr>
-                <th className='border p-2'>Address (from CSV)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {displayedInvalidRows.map((row, index) => (
-                <tr key={index}>
-                  <td className='border p-2'>
-                    {row.address || JSON.stringify(row)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className='mt-4 p-4 bg-yellow-100 text-yellow-700 rounded'>
+          <h2 className='font-bold'>
+            Client-Side Invalid Rows (Preview - first 10)
+          </h2>
+          <p className='text-sm mb-2'>
+            These rows were not submitted because they failed client-side
+            address validation.
+          </p>
+          <pre className='text-xs overflow-auto'>
+            {JSON.stringify(displayedInvalidRows, null, 2)}
+          </pre>
         </div>
       )}
     </div>

@@ -1,0 +1,11 @@
+{
+  "apps": {
+    "E08TV5201N2": {
+      "app_id": "A08UQNCQMUY",
+      "enterprise_id": "E08TV5201N2",
+      "team_domain": "jiffy-sandbox",
+      "team_id": "E08TV5201N2"
+    }
+  },
+  "default": "jiffy-sandbox"
+}

@@ -1,25 +1,22 @@
 import prisma from '../../prisma'; // Adjusted path to import from src/prisma.ts
-import { Prisma } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import type { ImportAddress, ImportRequestBody } from './import.types';
 import { isValidEVMAddress, isValidTronAddress } from '../../utils/validators';
 
 export class ImportService {
     async processImport(data: ImportRequestBody) {
-        const { companyName, mode, addresses, original_filename } = data;
+        const { companyId, mode, addresses, original_filename } = data;
         let validRowsCount = 0;
         let invalidRowsCount = 0;
 
-        if (!companyName || typeof companyName !== 'string' || companyName.trim() === '') {
-            throw new Error('Company name is required and must be a non-empty string.');
-        }
-
-        // Upsert company: find by name or create if not exists
-        const company = await prisma.company.upsert({
-            where: { name: companyName.trim() },
-            update: {}, // No fields to update if found, just need its ID
-            create: { name: companyName.trim() },
+        // Fetch the company by ID to ensure it exists and to get its name for the response
+        const company = await prisma.company.findUnique({
+            where: { id: companyId },
         });
-        const companyId = company.id; // Use the ID of the found or created company
+
+        if (!company) {
+            throw new Error(`Company with ID ${companyId} not found.`);
+        }
 
         // Basic request body validations (mode, addresses array, length)
         if (mode !== 'REPLACE' && mode !== 'APPEND') {
@@ -36,7 +33,7 @@ export class ImportService {
 
         const processedAddressesInfo: { addressId: number; chainType: string; isValid: boolean; originalAddress: ImportAddress }[] = [];
 
-        const importResult = await prisma.$transaction(async (tx) => {
+        const importResult = await prisma.$transaction(async (tx: PrismaClient) => {
             const importBatch = await tx.importBatch.create({
                 data: {
                     company: { connect: { id: companyId } },
@@ -63,8 +60,8 @@ export class ImportService {
                 if (isValid) {
                     validRowsCount++;
                     const uniqueAddress = await tx.address.upsert({
-                        where: { address: impAddr.address }, // Assuming address string itself is unique globally
-                        update: { chainType: currentChainType }, // Potentially update chainType if it changed (unlikely)
+                        where: { address: impAddr.address },
+                        update: { chainType: currentChainType },
                         create: { address: impAddr.address, chainType: currentChainType },
                     });
 
@@ -80,7 +77,8 @@ export class ImportService {
                         data: {
                             batchId: importBatch.id,
                             addressId: uniqueAddress.id,
-                            isValid: true, // RowData could be stored here if needed from impAddr
+                            isValid: true,
+                            rowData: impAddr // Store the full row data including threshold
                         }
                     });
                 } else {
@@ -99,13 +97,21 @@ export class ImportService {
 
             for (const procAddr of processedAddressesInfo) {
                 if (procAddr.isValid) {
+                    // Use the threshold from the individual address in the CSV, if provided
+                    const addressThreshold = procAddr.originalAddress.threshold;
+
                     await tx.companyAddress.upsert({
                         where: { uq_company_address: { companyId: companyId, addressId: procAddr.addressId } },
-                        update: { isActive: true, updatedAt: new Date() }, // Ensure it's active, update timestamp
+                        update: {
+                            isActive: true,
+                            updatedAt: new Date(),
+                            threshold: addressThreshold ?? 0 // Use 0 if no threshold provided
+                        },
                         create: {
                             company: { connect: { id: companyId } },
                             address: { connect: { id: procAddr.addressId } },
                             isActive: true,
+                            threshold: addressThreshold ?? 0 // Use 0 if no threshold provided
                         },
                     });
                 }
@@ -129,6 +135,9 @@ export class ImportService {
                 validAddresses: validRowsCount,
                 invalidAddresses: invalidRowsCount,
             };
+        }, {
+            maxWait: 30000, // Maximum time Prisma Client will wait to acquire a transaction from the pool
+            timeout: 30000, // Maximum time the transaction can run for
         });
 
         return importResult;

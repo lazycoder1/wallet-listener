@@ -11,12 +11,15 @@ const companyRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
         '/', // Route path is now relative to the prefix defined when registering this plugin
         async (request, reply) => {
             try {
-                const { name } = request.body;
+                // Destructure all expected fields from the body
+                const { name, slackConfiguration } = request.body;
+
                 if (!name || typeof name !== 'string' || name.trim() === '') {
                     reply.status(400).send({ error: 'Company name is required and must be a non-empty string.' });
                     return;
                 }
-                const newCompany = await companyService.createCompany({ name });
+                // Pass the full relevant body to the service
+                const newCompany = await companyService.createCompany({ name, slackConfiguration });
                 reply.status(201).send(newCompany);
             } catch (e: any) {
                 fastify.log.error(e);
@@ -75,12 +78,27 @@ const companyRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
                 return;
             }
 
-            const { name } = request.body;
-            if (!name || typeof name !== 'string' || name.trim() === '') {
-                reply.status(400).send({ error: 'Company name is required and must be a non-empty string.' });
+            // Destructure all expected fields from the body
+            const { name, slackConfiguration } = request.body;
+
+            // Validate name if provided (it's optional in UpdateCompanyBody)
+            if (name !== undefined && (typeof name !== 'string' || name.trim() === '')) {
+                reply.status(400).send({ error: 'If company name is provided, it must be a non-empty string.' });
                 return;
             }
-            const updatedCompany = await companyService.updateCompanyById(companyId, { name });
+
+            // Ensure at least some data is being sent for update if relying on partial updates
+            if (name === undefined && slackConfiguration === undefined) {
+                reply.status(400).send({ error: 'No data provided for update. Name or slackConfiguration must be present.' });
+                return;
+            }
+
+            // Pass the full relevant body (or parts of it) to the service
+            const updateData: UpdateCompanyBody = {};
+            if (name !== undefined) updateData.name = name;
+            if (slackConfiguration !== undefined) updateData.slackConfiguration = slackConfiguration;
+
+            const updatedCompany = await companyService.updateCompanyById(companyId, updateData);
             reply.send(updatedCompany);
         } catch (e: any) {
             fastify.log.error(e);

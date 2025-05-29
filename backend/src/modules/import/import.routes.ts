@@ -9,13 +9,12 @@ const importRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
         '/', // Path will be relative to the prefix when registered in index.ts (e.g., /imports)
         async (request, reply) => {
             try {
-                // Validate companyName (basic check, service does more)
-                const { companyName, mode, addresses } = request.body; // original_filename is optional
+                const { companyId, mode, addresses, original_filename } = request.body;
 
-                if (!companyName || typeof companyName !== 'string' || companyName.trim() === '') {
-                    return reply.status(400).send({ error: 'Company name is required and must be a non-empty string.' });
+                if (!companyId || typeof companyId !== 'number' || companyId <= 0) {
+                    return reply.status(400).send({ error: 'Company ID is required and must be a positive number.' });
                 }
-                // Other basic validations remain as they were in the service, or can be duplicated here for early exit
+
                 if (mode !== 'REPLACE' && mode !== 'APPEND') {
                     return reply.status(400).send({ error: 'Invalid import mode. Must be REPLACE or APPEND.' });
                 }
@@ -26,19 +25,25 @@ const importRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
                     return reply.status(413).send({ error: 'Too many addresses. Max 2000 allowed for synchronous import.' });
                 }
 
-                const result = await importService.processImport(request.body);
+                // Pass the original_filename if present
+                const importData: ImportRequestBody = {
+                    companyId,
+                    mode,
+                    addresses,
+                    ...(original_filename && { original_filename }),
+                };
+
+                const result = await importService.processImport(importData);
                 reply.status(201).send(result);
             } catch (e: any) {
                 fastify.log.error(e, 'Error processing import request');
-                // Error handling for messages from the service
-                if (e.message.includes('Company name is required') ||
-                    e.message.includes('Invalid import mode') ||
-                    e.message.includes('Addresses array is required')) {
+                // Simplified error handling, specific messages come from service or Prisma errors
+                if (e.message.includes('required') || e.message.includes('Invalid') || e.message.includes('must be')) {
                     reply.status(400).send({ error: e.message });
                 } else if (e.message.includes('Too many addresses')) {
                     reply.status(413).send({ error: e.message });
-                } else if (e.message.includes('not found')) { // Should not happen with upsert, but good fallback
-                    reply.status(404).send({ error: e.message });
+                } else if (e.message.toLowerCase().includes('not found')) {
+                    reply.status(404).send({ error: e.message }); // e.g. Company not found by ID
                 } else {
                     reply.status(500).send({ error: 'Failed to process import.', details: e.message });
                 }

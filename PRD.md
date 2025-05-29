@@ -3,139 +3,154 @@
 ## 1. Overview
 
 **Purpose:**
-An internal admin dashboard to onboard wallet addresses in bulk, monitor chain-wide balances, and fire Slack alerts on deposits above configurable thresholds—quickly and reliably for our first 2–2.5-week MVP.
+An internal admin dashboard to monitor blockchain addresses for native and token transfers, with configurable Slack alerts for deposits above specified thresholds.
 
 **Key Goals:**
-
--   Allow internal ops to upload/update address lists per company
--   Validate & store only well-formed 0x/TR addresses
--   Monitor balances (via third-party APIs) on Eth, BSC, Polygon, or Tron
--   Trigger a Slack notification on every deposit ≥ threshold
--   Provide simple download/export and system-health check
+- Monitor addresses across EVM chains and Tron
+- Track both native and token transfers
+- Send Slack notifications for deposits above threshold
+- Provide simple data export and system health checks
 
 ---
 
-## 2. Actors & Roles
+## 2. Core Features
 
-| Actor              | Capabilities                                                                                                                        |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------- |
-| **Internal Admin** | • Upload/replace/append CSVs• View company imports• Download raw CSVs• Ping health check• Configure per-company webhook & threshold |
+### 2.1 Address Management
+- Bulk import via CSV/Excel
+- Company-based organization
+- Support for both EVM (0x) and Tron (TR) addresses
+- Validation of address format and chain type
 
-_No external “viewer” roles or per-address Slack controls in MVP._
+### 2.2 Transfer Monitoring
+- Real-time tracking of native transfers
+- Real-time tracking of token transfers (ERC20/TRC20)
+- Event persistence in database
+- Unified event format across chains
 
----
+### 2.3 Alert System
+- Per-company Slack webhook configuration
+- Configurable threshold per company
+- Alert logging and history
+- Support for both native and token transfers
 
-## 3. Assumptions & Constraints
-
-1. **Import behavior**
-
-    - Default **“drop & replace”** mode; optional **“append”** flag
-    - On duplicate (same address+chain), newest upload overwrites
-
-2. **Address validation**
-
-    - EVM: must start `0x`, 42 chars; Tron: start `TR`, 42 chars
-    - Invalid rows are ignored; show count of rejected addresses post-import
-
-3. **Chains supported**
-
-    - Eth, BSC, Polygon for `0x…` addresses
-    - Tron only for `TR…` addresses
-    - Company cannot toggle chains—determined per-address type
-
-4. **Balance calculation**
-
-    - Use external APIs; show cumulative token balance per address
-
-5. **Alerts**
-
-    - One Slack webhook per company
-    - Fire on every inbound transfer ≥ threshold
-    - Persist an **alert log** entry for each notification
-
-6. **Data retention**
-
-    - No raw transfer or snapshot history beyond alert logs
-
-7. **Exports**
-
-    - Ad-hoc CSV recreation of current address + last-known balance
+### 2.4 Data Export
+- Company-scoped CSV exports
+- Current address list with balances
+- Import history and audit trail
 
 ---
 
-## 4. User Stories & Acceptance Criteria
+## 3. Technical Requirements
 
-### 4.1 Bulk Import Addresses
+### 3.1 Address Validation
+- EVM: `^0x[a-fA-F0-9]{40}$`
+- Tron: `^TR[a-zA-Z0-9]{40}$`
+- Skip invalid addresses during import
+- Report validation errors
 
-**As an** internal admin
-**I want to** upload a CSV/XLSX of addresses + company name
-**So that** the system can begin monitoring those wallets
+### 3.2 WebSocket Integration
+- Alchemy for EVM chains
+- TronGrid for Tron
+- Auto-reconnect on connection drops
+- Error handling and logging
 
-**Acceptance Criteria:**
+### 3.3 Database Schema
+- Companies and addresses
+- Import batches and history
+- Transfer events and alerts
+- Slack configurations
 
--   [ ] Admin can choose **Drop & Replace** (default) or **Append** mode.
--   [ ] Invalid addresses (incorrect prefix/length) are skipped and counted.
--   [ ] Upon completion, the UI shows a loading spinner and then a **Completed** banner.
--   [ ] The import history lists the new batch with total rows and rejected count.
+### 3.4 API Endpoints
+- Address import/export
+- Health check
+- Alert configuration
+- System status
 
-### 4.2 View & Download Imports
+---
 
-**As an** internal admin
-**I want to** see all past imports for a company and download the original files
-**So that** I can audit or reprocess data offline
+## 4. User Stories
 
-**Acceptance Criteria:**
-
--   [ ] Import history table displays: date, mode (replace/append), total rows, rejected count.
--   [ ] Each row has a **Download** action that retrieves the exact uploaded CSV/XLSX.
-
-### 4.3 Balance Monitoring & Health Check
-
-**As an** internal admin
-**I want to** manually trigger a **Health Check** to verify connectivity to chain APIs
-**So that** I can confirm the system is operational
-
-**Acceptance Criteria:**
-
--   [ ] Clicking **Health Check** calls a backend endpoint that returns **OK** or **Fail**.
--   [ ] UI displays a green **OK** or red **Fail** indicator based on the response.
-
-### 4.4 Slack Alerts
-
-**As an** internal admin
-**I want to** configure a Slack webhook URL and a numeric threshold per company
-**So that** each deposit ≥ threshold triggers an alert
+### 4.1 Address Management
+**As an** admin
+**I want to** upload a CSV of addresses
+**So that** I can monitor them for transfers
 
 **Acceptance Criteria:**
+- [ ] Support CSV/Excel upload
+- [ ] Validate address format
+- [ ] Associate with company
+- [ ] Show import results
 
--   [ ] Admin can enter and save a valid **webhook URL** and numeric **threshold (≥ 0)**.
--   [ ] For every new deposit ≥ threshold, a message is sent to the configured Slack channel.
--   [ ] Each sent alert is logged in the database with timestamp, address, amount, and tx_hash.
-
-### 4.5 Export Current Data
-
-**As an** internal admin
-**I want to** export a CSV of my company’s current addresses and balances
-**So that** I can share or archive the latest snapshot
+### 4.2 Transfer Monitoring
+**As an** admin
+**I want to** see real-time transfers
+**So that** I can track incoming deposits
 
 **Acceptance Criteria:**
+- [ ] Show native transfers
+- [ ] Show token transfers
+- [ ] Display transfer history
+- [ ] Filter by company/address
 
--   [ ] An **Export to CSV** button is visible on the company page.
--   [ ] Downloaded CSV contains columns: `address`, `chain`, `last_balance`, and `last_checked_at`.
+### 4.3 Alert Configuration
+**As an** admin
+**I want to** set up Slack alerts
+**So that** I get notified of deposits
 
-## 5. Data Validation Rules Data Validation Rules Data Validation Rules
+**Acceptance Criteria:**
+- [ ] Configure webhook URL
+- [ ] Set threshold amount
+- [ ] Test alert delivery
+- [ ] View alert history
 
-| Field         | Validation                                                  |
-| ------------- | ----------------------------------------------------------- |
-| `address`     | EVM: regex `^0x[a-fA-F0-9]{40}$`Tron: `^TR[a-zA-Z0-9]{40}$` |
-| `threshold`   | Decimal **≥ 0**                                             |
-| `webhook_url` | Valid HTTPS URL                                             |
-| `mode`        | Enum(`replace`, `append`)                                   |
+### 4.4 Data Export
+**As an** admin
+**I want to** export address data
+**So that** I can analyze it offline
+
+**Acceptance Criteria:**
+- [ ] Export by company
+- [ ] Include current balances
+- [ ] Include transfer history
+- [ ] CSV format support
+
+---
+
+## 5. Implementation Status
+
+### Completed
+- [x] WebSocket infrastructure
+- [x] Address management
+- [x] Event subscription
+- [x] Database schema
+
+### In Progress
+- [ ] Slack integration
+- [ ] Admin panel
+- [ ] Import/Export
+- [ ] Health checks
+
+### Pending
+- [ ] Error handling
+- [ ] Testing
+- [ ] Documentation
+- [ ] Deployment
 
 ---
 
 ## 6. Next Steps
 
-1. **Review & refine** the above stories, criteria, and rules.
-2. **Add any missing flows** (e.g. error states or edge-case behaviors).
-3. **Sign off** so we can sketch the final DB schema and start development.
+1. **Immediate**
+   - Complete Slack integration
+   - Implement import/export
+   - Develop admin panel
+
+2. **Technical**
+   - Add error handling
+   - Implement health checks
+   - Add monitoring
+
+3. **Future**
+   - Async processing
+   - More chains
+   - Enhanced features

@@ -1,8 +1,9 @@
 import type { Hex } from 'viem';
 import { EvmConnectionManager } from './evmConnectionManager';
 import { TronConnectionManager } from './tronConnectionManager';
-import { AddressManager } from '../address/addressManager'; // Import AddressManager
-// import { TronConnectionManager } from './tronConnectionManager'; // Placeholder for when Tron is class-based
+import { AddressManager } from '../address/addressManager';
+import { AddressService } from '../address/addressService';
+import logger from '../../config/logger';
 
 // --- SHARED TYPES --- (Still exported for use by other parts of the application, like the handler itself)
 export interface Erc20TransferEvent {
@@ -29,6 +30,8 @@ export type UnifiedTransferEvent =
 
 export type EventHandlerCallback = (event: UnifiedTransferEvent) => void;
 
+export type ChainType = 'evm' | 'tron';
+
 // --- MOCK DATABASE FUNCTION --- (Replace with actual DB call using Prisma)
 async function fetchAddressesFromDB(): Promise<Hex[]> {
     console.log("[DB Mock] Fetching addresses from database...");
@@ -49,110 +52,141 @@ async function fetchAddressesFromDB(): Promise<Hex[]> {
 // --- MAIN ORCHESTRATOR CLASS ---
 export class WsConnectionManager {
     private eventHandler: EventHandlerCallback | null = null;
-    private addressManager: AddressManager; // Use AddressManager instance
+    private addressManager: AddressManager;
+    private addressService: AddressService;
     private evmManager: EvmConnectionManager | null = null;
     private tronManager: TronConnectionManager | null = null;
-    // private tronManager: TronConnectionManager | null = null; // Placeholder
     private refreshIntervalId: NodeJS.Timeout | null = null;
+    private chainType: ChainType;
+    private running: boolean = false;
 
-    constructor(private readonly refreshIntervalMinutes: number = 5) {
-        this.addressManager = new AddressManager(); // Initialize AddressManager
-        console.log(`WsConnectionManager initialized. Address refresh interval: ${refreshIntervalMinutes} minutes.`);
+    constructor(
+        private readonly refreshIntervalMinutes: number = 5,
+        chainType: ChainType = 'evm'
+    ) {
+        this.addressManager = new AddressManager();
+        this.addressService = new AddressService();
+        this.chainType = chainType;
+        logger.info(`WsConnectionManager initialized for ${chainType} chains. Address refresh interval: ${refreshIntervalMinutes} minutes.`);
     }
 
     public setEventHandler(handler: EventHandlerCallback): void {
-        console.log("Global event handler set via WsConnectionManager.");
+        logger.info("Global event handler set via WsConnectionManager.");
         this.eventHandler = handler;
-        if (this.evmManager) {
-            // EvmManager will get AddressManager instance, so direct handler update might be less critical here
-            // or EvmManager could have a method to update its handler if needed.
-            // For now, EvmManager gets the handler at construction.
-        }
     }
 
-    private updateConnectionsWithNewAddresses(newAddresses: Hex[]): void {
-        this.addressManager.updateAddresses(newAddresses); // Update AddressManager
-        console.log("Internal: Updating connections. Current tracked addresses from AddressManager:", this.addressManager.getTrackedAddresses());
+    private async updateConnectionsWithNewAddresses(newAddresses: Hex[]): Promise<void> {
+        this.addressManager.updateAddresses(newAddresses);
+        logger.info("Internal: Updating connections. Current tracked addresses from AddressManager:", this.addressManager.getTrackedAddresses());
 
-        if (this.evmManager) {
-            // EvmConnectionManager will use the AddressManager instance passed to it,
-            // so its internal filtering logic will automatically use the updated addresses.
-            // However, we still need to tell EvmManager to potentially re-evaluate its subscriptions if addresses changed significantly
-            // or if its subscription method depends on the current list (e.g. if it wasn't subscribing to all events).
-            // The current EvmManager `updateTrackedAddresses` handles this by restarting subscriptions.
-            // We need to ensure it gets the new handler if it changed too.
+        if (this.chainType === 'evm' && this.evmManager) {
             this.evmManager.updateTrackedAddresses(this.addressManager.getTrackedAddresses(), this.eventHandler);
-        }
-        if (this.tronManager) {
+        } else if (this.chainType === 'tron' && this.tronManager) {
             this.tronManager.updateTrackedAddresses(this.addressManager.getTrackedAddresses(), this.eventHandler);
         }
     }
 
     public async reloadAddressesFromDB(): Promise<void> {
-        console.log("Reloading addresses from DB...");
+        logger.info("Reloading addresses from DB...");
         try {
-            const addressesFromDB = await fetchAddressesFromDB();
-            this.updateConnectionsWithNewAddresses(addressesFromDB);
+            const addressesFromDB = await this.addressService.getActiveAddresses();
+            await this.updateConnectionsWithNewAddresses(addressesFromDB);
         } catch (error) {
-            console.error("Error reloading addresses from DB:", error);
+            logger.error("Error reloading addresses from DB:", error);
         }
     }
 
     public async startConnections(initialAddresses?: Hex[]): Promise<void> {
         if (initialAddresses && initialAddresses.length > 0) {
             this.addressManager.updateAddresses(initialAddresses.map(a => a.toLowerCase() as Hex));
-            console.log("Starting connections with provided initial addresses. Count:", this.addressManager.getTrackedAddressCount());
+            logger.info("Starting connections with provided initial addresses. Count:", this.addressManager.getTrackedAddressCount());
         } else {
-            console.log("No initial addresses provided, attempting to load from DB...");
-            await this.reloadAddressesFromDB(); // Load initial set from DB
+            logger.info("No initial addresses provided, attempting to load from DB...");
+            await this.reloadAddressesFromDB();
         }
 
-        console.log("Starting all WebSocket connections via WsConnectionManager. Current tracked address count:", this.addressManager.getTrackedAddressCount());
+        logger.info(`Starting ${this.chainType} WebSocket connections via WsConnectionManager. Current tracked address count:`, this.addressManager.getTrackedAddressCount());
 
         if (!this.eventHandler) {
-            console.warn("Event handler not set in WsConnectionManager before starting. Events might be missed.");
+            logger.warn("Event handler not set in WsConnectionManager before starting. Events might be missed.");
         }
 
-        // Initialize and start EVM manager
-        this.evmManager = new EvmConnectionManager(this.addressManager, this.eventHandler);
-        this.evmManager.start();
-
-        // Initialize and start Tron manager
-        this.tronManager = new TronConnectionManager(this.addressManager, this.eventHandler);
-        this.tronManager.start();
+        // Initialize and start the appropriate manager based on chain type
+        if (this.chainType === 'evm') {
+            this.evmManager = new EvmConnectionManager(this.addressManager, this.eventHandler);
+            this.evmManager.start();
+        } else if (this.chainType === 'tron') {
+            this.tronManager = new TronConnectionManager(this.addressManager, this.eventHandler);
+            this.tronManager.start();
+        }
 
         // Start periodic refresh
         if (this.refreshIntervalMinutes > 0) {
             if (this.refreshIntervalId) clearInterval(this.refreshIntervalId);
             this.refreshIntervalId = setInterval(async () => {
-                console.log(`Periodic refresh: Reloading addresses from DB (every ${this.refreshIntervalMinutes} mins)...`);
+                logger.info(`Periodic refresh: Reloading addresses from DB (every ${this.refreshIntervalMinutes} mins)...`);
                 await this.reloadAddressesFromDB();
             }, this.refreshIntervalMinutes * 60 * 1000);
-            console.log(`Periodic address refresh scheduled every ${this.refreshIntervalMinutes} minutes.`);
+            logger.info(`Periodic address refresh scheduled every ${this.refreshIntervalMinutes} minutes.`);
         }
 
-        console.log("All WebSocket connection managers started via WsConnectionManager.");
+        this.running = true;
+        logger.info(`${this.chainType.toUpperCase()} WebSocket connection manager started via WsConnectionManager.`);
     }
 
     public stopConnections(): void {
-        console.log("Stopping all WebSocket connections via WsConnectionManager...");
+        logger.info(`Stopping ${this.chainType} WebSocket connections via WsConnectionManager...`);
 
         if (this.refreshIntervalId) {
             clearInterval(this.refreshIntervalId);
             this.refreshIntervalId = null;
-            console.log("Stopped periodic address refresh.");
+            logger.info("Stopped periodic address refresh.");
         }
 
-        if (this.evmManager) {
+        if (this.chainType === 'evm' && this.evmManager) {
             this.evmManager.stop();
-            this.evmManager = null; // Release reference
-        }
-        if (this.tronManager) {
+            this.evmManager = null;
+        } else if (this.chainType === 'tron' && this.tronManager) {
             this.tronManager.stop();
-            this.tronManager = null; // Release reference
+            this.tronManager = null;
         }
 
-        console.log("All WebSocket connection managers stopped via WsConnectionManager.");
+        this.running = false;
+        logger.info(`${this.chainType.toUpperCase()} WebSocket connection manager stopped via WsConnectionManager.`);
+    }
+
+    /**
+     * Check if the connection manager is currently running
+     * @returns True if the connection manager is running, false otherwise
+     */
+    public isRunning(): boolean {
+        return this.running;
+    }
+
+    /**
+     * Get the number of addresses currently being tracked
+     * @returns The number of tracked addresses
+     */
+    public getTrackedAddressCount(): number {
+        return this.addressManager.getTrackedAddressCount();
+    }
+
+    public setChainType(chainType: ChainType): void {
+        if (this.chainType === chainType) {
+            logger.info(`Already using ${chainType} chain type.`);
+            return;
+        }
+
+        logger.info(`Switching from ${this.chainType} to ${chainType} chain type...`);
+
+        // Stop current connections
+        this.stopConnections();
+
+        // Update chain type
+        this.chainType = chainType;
+
+        // Start new connections
+        this.startConnections();
     }
 }
 
