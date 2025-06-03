@@ -23,6 +23,8 @@ services:
         build:
             context: ./frontend
             dockerfile: Dockerfile
+            args: # This 'args' section is crucial for build-time variables
+                NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL} # Gets value from env_file or shell
         ports:
             - "3000:3000" # Exposes frontend on host port 3000, mapping to container port 3000
         env_file:

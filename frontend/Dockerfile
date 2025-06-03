@@ -4,6 +4,11 @@ FROM node:18-alpine AS builder
 # Set working directory
 WORKDIR /usr/src/app
 
+# ---- ADD THESE LINES TO DECLARE AND SET THE BUILD ARGUMENT ----
+ARG NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+# ----------------------------------------------------------------
+
 # Install pnpm
 RUN npm install -g pnpm
 
@@ -21,6 +26,10 @@ RUN pnpm install --frozen-lockfile
 # Copy the rest of the application code
 # Make sure .dockerignore is properly set up in the frontend directory
 COPY . .
+
+# ---- ADD THIS LINE TO DEBUG THE VARIABLE DURING BUILD ----
+RUN echo "NEXT_PUBLIC_API_URL during build is: $NEXT_PUBLIC_API_URL"
+# ---------------------------------------------------------
 
 # Build the Next.js application
 RUN pnpm run build
@@ -58,6 +67,12 @@ USER nextjs
 EXPOSE 3000
 
 ENV PORT 3000
+
+# ---- The runtime env var is still useful if next start needs it, ----
+# ---- but the NEXT_PUBLIC_API_URL is already baked in from the build stage. ----
+# ---- You can also set it here if your app has a way to read it at runtime for other purposes ----
+ARG NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 
 # Next.js collects completely anonymous telemetry data about general usage.
 # Learn more here: https://nextjs.org/telemetry
