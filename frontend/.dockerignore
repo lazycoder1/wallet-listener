@@ -1,0 +1,22 @@
+node_modules
+.next
+.env
+.env.*
+!.env.production
+*.log
+.DS_Store
+
+# Git files
+.git
+.gitignore
+
+# Husky
+.husky
+
+# VSCode
+.vscode
+
+# Other specific files if any
+# PanelDevelopment.md
+# README.md (if not needed in image)
+# CHANGELOG.md (if not needed in image) 
