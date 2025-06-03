@@ -21,9 +21,14 @@ interface Company {
 
 // Ensure this points to your backend. The Slack routes are under /api/v1/slack/
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
+console.log('CompaniesPage API_BASE_URL:', API_BASE_URL);
+console.log(
+  'CompaniesPage process.env.NEXT_PUBLIC_API_URL:',
+  process.env.NEXT_PUBLIC_API_URL
+);
 
 interface ToastMessage {
-  type: 'success' | 'error';
+  type: 'success' | 'error' | 'info';
   message: string;
 }
 
@@ -108,10 +113,10 @@ export default function CompaniesPage() {
       }
 
       if (data.installUrl) {
-        await navigator.clipboard.writeText(data.installUrl);
+        console.log('Slack Install URL for manual copy:', data.installUrl); // Optional: for easier access in dev console
         setToast({
-          type: 'success',
-          message: 'Slack install link copied to clipboard!',
+          type: 'info', // Changed type to 'info' for manual copy instruction
+          message: `Please copy this Slack Install URL: ${data.installUrl}`,
         });
       } else {
         throw new Error('Install URL not found in response.');
@@ -144,7 +149,11 @@ export default function CompaniesPage() {
       {toast && (
         <div
           className={`fixed top-5 right-5 p-4 rounded-lg shadow-lg text-white ${
-            toast.type === 'success' ? 'bg-green-500' : 'bg-red-500'
+            toast.type === 'success'
+              ? 'bg-green-500'
+              : toast.type === 'error'
+              ? 'bg-red-500'
+              : 'bg-blue-500'
           }`}
           role='alert'
         >
