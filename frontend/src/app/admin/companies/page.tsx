@@ -20,7 +20,7 @@ interface Company {
 }
 
 // Ensure this points to your backend. The Slack routes are under /api/v1/slack/
-const API_BASE_URL = 'http://localhost:3001';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
 
 interface ToastMessage {
   type: 'success' | 'error';
