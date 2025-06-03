@@ -13,7 +13,7 @@ interface CompanyData extends CompanyFormData {
   // Add other fields like createdAt, updatedAt if needed for display or logic
 }
 
-const API_BASE_URL = 'http://localhost:3001'; // Your backend URL
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL; // Your backend URL
 
 async function fetchCompanyById(id: string): Promise<CompanyData | null> {
   const res = await fetch(`${API_BASE_URL}/companies/${id}`);

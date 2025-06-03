@@ -5,8 +5,9 @@ import { useRouter } from 'next/navigation'; // Using next/navigation for App Ro
 import CompanyForm, {
   CompanyFormData,
 } from '../../../../components/CompanyForm'; // Adjusted path
+import Link from 'next/link';
 
-const API_BASE_URL = 'http://localhost:3001'; // Your backend URL
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL; // Your backend URL
 
 // Define the expected API response structure for creating a company
 interface CompanyApiResponse {
