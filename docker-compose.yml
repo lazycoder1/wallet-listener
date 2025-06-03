@@ -1,0 +1,38 @@
+version: "3.8"
+
+services:
+    backend:
+        build:
+            context: ./backend
+            dockerfile: Dockerfile
+        ports:
+            - "3001:3001" # Exposes backend on host port 3001, mapping to container port 3001
+        env_file:
+            - ./backend/.env # Make sure this file exists with your backend environment variables
+        volumes:
+            [] # Ensure this is an array, even if empty or items are commented out
+            # If you have logs or other data you want to persist outside the container for the backend:
+            # - ./backend/logs:/usr/src/app/logs
+        # Depending on your Prisma setup and if you use SQLite, you might need a volume for the DB file.
+        # For PostgreSQL/MySQL, the DB would typically be a separate service.
+        networks:
+            - wallet_watcher_network
+        # restart: unless-stopped # Optional: to automatically restart the container
+
+    frontend:
+        build:
+            context: ./frontend
+            dockerfile: Dockerfile
+        ports:
+            - "3000:3000" # Exposes frontend on host port 3000, mapping to container port 3000
+        env_file:
+            - ./frontend/.env.local # Make sure this file exists with your frontend environment variables
+        depends_on:
+            - backend # Ensures backend starts before frontend, useful if frontend fetches data on build/start
+        networks:
+            - wallet_watcher_network
+        # restart: unless-stopped # Optional
+
+networks:
+    wallet_watcher_network:
+        driver: bridge

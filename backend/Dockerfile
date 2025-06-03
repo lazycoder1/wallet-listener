@@ -14,7 +14,7 @@ COPY prisma ./prisma/
 RUN bun install --frozen-lockfile
 
 # Generate Prisma client
-# Ensure all dependencies, including Prisma CLI, are available from bun install
+# The binaryTargets are now specified in the schema.prisma file
 RUN bunx prisma generate
 
 # Copy the rest of the application code
@@ -28,6 +28,12 @@ COPY . .
 FROM oven/bun:1-slim
 
 WORKDIR /usr/src/app
+
+# Install libssl3 for Prisma OpenSSL 3.x query engine
+# Run as root before copying application files or changing user
+RUN apt-get update && \
+    apt-get install -y libssl3 --no-install-recommends && \
+    rm -rf /var/lib/apt/lists/*
 
 # Copy dependencies, prisma client, and application code from the builder stage
 COPY --from=builder /usr/src/app/node_modules ./node_modules/
