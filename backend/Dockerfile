@@ -15,7 +15,7 @@ RUN bun install --frozen-lockfile
 
 # Generate Prisma client
 # Ensure all dependencies, including Prisma CLI, are available from bun install
-RUN npx prisma generate
+RUN bunx prisma generate
 
 # Copy the rest of the application code
 COPY . .
