@@ -6,6 +6,7 @@
 
 generator client {
   provider = "prisma-client-js"
+  engineType = "binary"
 }
 
 datasource db {
@@ -92,7 +93,7 @@ model SlackConfiguration {
   channelName          String?  @map("channel_name")
   alertThreshold       Decimal  @default(0) @map("alert_threshold")
   isEnabled            Boolean  @default(true) @map("is_enabled")
-  slackTeamId          String   @unique @map("slack_team_id")
+  slackTeamId          String?  @unique @map("slack_team_id")
   slackTeamName        String?  @map("slack_team_name")
   accessToken          String?  @map("access_token")
   botUserId            String?  @map("bot_user_id")

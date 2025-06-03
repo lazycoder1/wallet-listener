@@ -1,0 +1,11 @@
+node_modules
+.env
+*.log
+logs
+.DS_Store
+# Add other files or directories that should not be included in the Docker image
+# For example, if you have local development config files or test artifacts:
+# .vscode/
+# coverage/
+# test_output/
+# *.test.ts (if tests are not run in the image and not needed for production) 

@@ -53,8 +53,8 @@ server.register(slackRoutes, { prefix: '/api/v1/slack' });
 const tokenService = TokenService.getInstance();
 
 // Initialize WebSocket Connection Managers
-const evmWsManager = new WsConnectionManager(5, 'evm'); // Refresh addresses every 5 minutes
-const tronWsManager = new WsConnectionManager(5, 'tron'); // Refresh addresses every 5 minutes
+const evmWsManager = new WsConnectionManager(5, 'EVM'); // Refresh addresses every 5 minutes
+const tronWsManager = new WsConnectionManager(5, 'TRON'); // Refresh addresses every 5 minutes
 
 // Set event handlers
 evmWsManager.setEventHandler(handleWebSocketEvent);
@@ -94,12 +94,12 @@ server.get('/health', async (request, reply) => {
 // Add API route to switch blockchain monitoring mode
 server.post('/api/monitoring/mode', async (request, reply) => {
     try {
-        const { mode } = request.body as { mode: 'evm' | 'tron' | 'both' };
+        const { mode } = request.body as { mode: 'EVM' | 'TRON' | 'both' };
 
-        if (!mode || !['evm', 'tron', 'both'].includes(mode)) {
+        if (!mode || !['EVM', 'TRON', 'both'].includes(mode)) {
             return reply.status(400).send({
                 status: 'error',
-                message: 'Invalid mode. Must be "evm", "tron", or "both".'
+                message: 'Invalid mode. Must be "EVM", "TRON", or "both".'
             });
         }
 
@@ -109,12 +109,12 @@ server.post('/api/monitoring/mode', async (request, reply) => {
         logger.info(`Stopped all blockchain monitoring`);
 
         // Start requested monitoring mode(s)
-        if (mode === 'evm' || mode === 'both') {
+        if (mode === 'EVM' || mode === 'both') {
             await evmWsManager.startConnections();
             logger.info('EVM blockchain monitoring started');
         }
 
-        if (mode === 'tron' || mode === 'both') {
+        if (mode === 'TRON' || mode === 'both') {
             await tronWsManager.startConnections();
             logger.info('Tron blockchain monitoring started');
         }
@@ -123,8 +123,8 @@ server.post('/api/monitoring/mode', async (request, reply) => {
             status: 'success',
             message: `Monitoring mode switched to ${mode}`,
             activeMonitoring: {
-                evm: mode === 'evm' || mode === 'both',
-                tron: mode === 'tron' || mode === 'both'
+                evm: mode === 'EVM' || mode === 'both',
+                tron: mode === 'TRON' || mode === 'both'
             }
         };
     } catch (error: any) {

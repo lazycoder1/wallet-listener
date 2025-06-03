@@ -123,8 +123,19 @@ export class TokenService {
                 const activeTokens = await this.getActiveTokens();
                 const symbols = activeTokens.map(t => t.symbol);
 
+                // If there are no symbols to fetch, don't make the API call
+                if (symbols.length === 0) {
+                    logger.info('No active symbols to fetch prices for. Skipping API call.');
+                    this.lastFetchTime = new Date(); // Update last fetch time to prevent immediate re-fetch
+                    this.consecutiveFailures = 0;
+                    return;
+                }
+
+                const requestUrl = `${this.ALCHEMY_API_URL}/${appConfig.alchemy.apiKey}/tokens/by-symbol`;
+                logger.info(`Attempting to fetch prices from URL: ${requestUrl} for symbols: ${symbols.join(',')}`);
+
                 const response = await axios.get<AlchemyPriceResponse>(
-                    `${this.ALCHEMY_API_URL}/${appConfig.alchemy.apiKey}/tokens/by-symbol`,
+                    requestUrl,
                     {
                         params: {
                             symbols: symbols.join(',')

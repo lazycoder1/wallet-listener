@@ -12,6 +12,12 @@ interface SendSlackAlertArgs {
     // blocks?: any[]; 
 }
 
+interface SlackWebhookResponse {
+    ok: boolean;
+    error?: string;
+    // Add any other fields you expect from the Slack webhook response
+}
+
 /**
  * Sends an alert message to the configured Slack bot webhook.
  * This webhook is expected to be a Deno Slack bot trigger that accepts channel_id and text.
@@ -54,7 +60,7 @@ export async function sendSlackAlert({
             return false;
         }
 
-        const responseJson = await response.json();
+        const responseJson = await response.json() as SlackWebhookResponse;
         if (responseJson.ok) {
             console.log(`Slack alert successfully sent to channel ${channelId}.`);
             return true;

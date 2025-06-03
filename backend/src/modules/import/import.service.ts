@@ -33,7 +33,7 @@ export class ImportService {
 
         const processedAddressesInfo: { addressId: number; chainType: string; isValid: boolean; originalAddress: ImportAddress }[] = [];
 
-        const importResult = await prisma.$transaction(async (tx: PrismaClient) => {
+        const importResult = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
             const importBatch = await tx.importBatch.create({
                 data: {
                     company: { connect: { id: companyId } },
@@ -78,7 +78,7 @@ export class ImportService {
                             batchId: importBatch.id,
                             addressId: uniqueAddress.id,
                             isValid: true,
-                            rowData: impAddr // Store the full row data including threshold
+                            rowData: impAddr as any // Store the full row data including threshold
                         }
                     });
                 } else {

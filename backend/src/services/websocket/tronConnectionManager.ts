@@ -143,44 +143,63 @@ export class TronConnectionManager {
             return null;
         }
 
-        // 1. Check if it's already a valid Tron Base58 address (T...)
-        if (addressInput.startsWith('T') && addressInput.length === 34) {
-            if (this.tronWebInstance.isAddress(addressInput)) {
-                return addressInput; // Already valid and in correct case
-            } else {
-                // This case implies it looks like Base58 but is invalid (e.g. checksum error, wrong chars)
-                logger.warn(`[TronAddr] Invalid or incorrectly cased Tron Base58 address: ${addressInput}`);
-                return null;
+        // 1. Handle Base58-like addresses (starts with T or t, length 34)
+        if (addressInput.length === 34) {
+            if (addressInput.startsWith('T')) {
+                // Starts with 'T', check if valid as is.
+                if (this.tronWebInstance.isAddress(addressInput)) {
+                    // Already valid and in correct canonical 'T...' form.
+                    return addressInput;
+                } else {
+                    logger.warn(`[TronAddr] Input '${addressInput}' (starts with 'T') failed tronWeb.isAddress() check.`);
+                    return null;
+                }
+            } else if (addressInput.startsWith('t')) {
+                // Starts with 't', attempt to canonicalize to 'T...' then validate.
+                logger.debug(`[TronAddr] Input '${addressInput}' starts with 't'. Attempting canonicalization.`);
+                try {
+                    const hexAddress = this.tronWebInstance.address.toHex(addressInput);
+                    const canonicalBase58 = this.tronWebInstance.address.fromHex(hexAddress);
+
+                    if (this.tronWebInstance.isAddress(canonicalBase58) && canonicalBase58.startsWith('T')) {
+                        logger.info(`[TronAddr] Successfully normalized '${addressInput}' to canonical form '${canonicalBase58}'.`);
+                        return canonicalBase58;
+                    } else {
+                        logger.warn(`[TronAddr] Canonical form '${canonicalBase58}' for input '${addressInput}' is invalid or not standard 'T...' format.`);
+                        return null;
+                    }
+                } catch (e: any) {
+                    logger.warn(`[TronAddr] Error during canonicalization of lowercase Base58 address '${addressInput}': ${e.message}`);
+                    return null;
+                }
             }
+            // If length is 34 but doesn't start with 'T' or 't', it's not a typical Tron Base58. Fall through.
         }
 
-        // 2. Check if it's a Tron Hex address (41...)
-        // Tron hex addresses are 42 chars (41 + 40 hex chars).
-        // Convert to lowercase for the startsWith check for robustness, though tronWeb.address.fromHex might handle mixed case.
+        // 2. Check if it's a Tron Hex address (41...) and convert to Base58 (T...)
         if (addressInput.length === 42 && addressInput.toLowerCase().startsWith('41')) {
             try {
                 const base58Address = this.tronWebInstance.address.fromHex(addressInput);
-                // Double check if the conversion resulted in a valid address
-                if (this.tronWebInstance.isAddress(base58Address)) {
+                if (this.tronWebInstance.isAddress(base58Address) && base58Address.startsWith('T')) {
+                    logger.debug(`[TronAddr] Converted hex address '${addressInput}' to Base58 '${base58Address}'.`);
                     return base58Address;
                 } else {
-                    logger.warn(`[TronAddr] Hex ${addressInput} converted to invalid/malformed Base58: ${base58Address}`);
+                    logger.warn(`[TronAddr] Hex '${addressInput}' converted to Base58 '${base58Address}', but it's invalid or not standard 'T...' format.`);
                     return null;
                 }
             } catch (e: any) {
-                logger.warn(`[TronAddr] Error converting Tron hex ${addressInput} to Base58: ${e.message}`);
+                logger.warn(`[TronAddr] Error converting Tron hex '${addressInput}' to Base58: ${e.message}`);
                 return null;
             }
         }
 
-        // 3. If it's an EVM address (0x...) or other format, ignore for Tron context.
+        // 3. If it's an EVM address (0x...)
         if (addressInput.startsWith('0x')) {
             // logger.debug(`[TronAddr] Ignoring EVM address for Tron operations: ${addressInput}`);
             return null;
         }
 
-        // For any other unrecognized formats from AddressManager
-        // logger.warn(`[TronAddr] Unrecognized address format, ignoring for Tron: ${addressInput}`);
+        logger.warn(`[TronAddr] Unrecognized address format, not processed for Tron: '${addressInput}'`);
         return null;
     }
 
@@ -282,18 +301,29 @@ export class TronConnectionManager {
             currentBlockNumber = nowBlock.block_header.raw_data.number;
         } catch (error) {
             logger.error('Error fetching current block number (getnowblock):', error);
-            throw error; // Propagate to trigger failure count and pause
+            if (this.lastProcessedBlockNumber === 0) throw error;
+            logger.warn(`Proceeding with last known lastProcessedBlockNumber: ${this.lastProcessedBlockNumber} due to getnowblock failure.`);
+            currentBlockNumber = this.lastProcessedBlockNumber;
         }
 
         if (currentBlockNumber <= this.lastProcessedBlockNumber) {
-            // logger.debug(`No new blocks to process. Current: ${currentBlockNumber}, Last Processed: ${this.lastProcessedBlockNumber}`);
             return;
         }
 
-        logger.info(`New blocks detected. Current: ${currentBlockNumber}, Last Processed: ${this.lastProcessedBlockNumber}. Processing up to ${Math.min(this.lastProcessedBlockNumber + 10, currentBlockNumber)} blocks this cycle.`);
+        const batchSize = 10; // Default batch size
+        const blocksToProcessThisCycle = Math.min(batchSize, currentBlockNumber - this.lastProcessedBlockNumber);
+        const endBlock = this.lastProcessedBlockNumber + blocksToProcessThisCycle;
 
-        // Process a limited number of blocks per cycle to avoid overly long operations
-        const endBlock = Math.min(this.lastProcessedBlockNumber + 10, currentBlockNumber); // Process max 10 blocks per cycle
+        logger.info(`New blocks detected. Current: ${currentBlockNumber}, Last Processed: ${this.lastProcessedBlockNumber}. Processing blocks from ${this.lastProcessedBlockNumber + 1} to ${endBlock} (up to ${blocksToProcessThisCycle} blocks).`);
+
+        const trackedAddresses = this.addressManager.getTrackedAddresses();
+        logger.info(`[Tron Debug CheckForNewBlocks] Using ${trackedAddresses.length} tracked addresses (original case) from AddressManager for this cycle: ${JSON.stringify(trackedAddresses)}`);
+
+        if (trackedAddresses.length === 0) {
+            logger.warn('[Tron Debug CheckForNewBlocks] No addresses provided by AddressManager for this cycle. Skipping block transaction checks.');
+            this.lastProcessedBlockNumber = endBlock;
+            return;
+        }
 
         for (let blockNum = this.lastProcessedBlockNumber + 1; blockNum <= endBlock; blockNum++) {
             try {
@@ -301,74 +331,47 @@ export class TronConnectionManager {
                     { num: blockNum },
                     {
                         headers: appConfig.networks.tron.apiKey ? { 'TRON-PRO-API-KEY': appConfig.networks.tron.apiKey } : undefined,
-                        timeout: 10000 // 10 second timeout for fetching a block
+                        timeout: 10000
                     }
                 );
                 const block = blockResponse.data as TronBlock;
 
                 if (!block || !block.transactions) {
-                    // logger.debug(`Block ${blockNum} has no transactions or is empty.`);
+                    logger.warn(`Block ${blockNum} has no transactions or block data is malformed.`);
                     continue;
                 }
-
                 logger.info(`Processing block ${blockNum} with ${block.transactions.length} transaction(s).`);
 
-                const trackedAddressesBase58 = this.addressManager.getTrackedAddresses()
-                    .map(addr => this.normalizeAndValidateTronAddress(addr)) // USE NEW METHOD
-                    .filter((addr): addr is string => addr !== null);      // Filter out nulls
-
-                if (trackedAddressesBase58.length === 0) {
-                    // logger.debug('No Tron addresses being tracked, skipping transaction processing in block.');
-                    continue;
-                }
-
                 for (const tx of block.transactions) {
-                    if (tx.ret && tx.ret[0] && tx.ret[0].contractRet === 'SUCCESS' && tx.raw_data && tx.raw_data.contract) {
-                        for (const contract of tx.raw_data.contract) {
-                            if (contract.type === 'TransferContract' &&
-                                contract.parameter && contract.parameter.value) {
+                    if (tx.ret && tx.ret[0] && tx.ret[0].contractRet === 'SUCCESS' && tx.raw_data && tx.raw_data.contract && tx.raw_data.contract[0]) {
+                        const contract = tx.raw_data.contract[0];
+                        if (contract.type === 'TransferContract' && contract.parameter && contract.parameter.value && contract.parameter.value.to_address) {
+                            const toAddressHex = contract.parameter.value.to_address;
+                            try {
+                                const toAddressBase58Canonical = this.tronWebInstance.address.fromHex(toAddressHex);
 
-                                const ownerAddressHex = contract.parameter.value.owner_address;
-                                const toAddressHex = contract.parameter.value.to_address;
-                                const amount = contract.parameter.value.amount;
-
-                                if (!toAddressHex || typeof amount === 'undefined') { // amount can be 0
-                                    logger.warn(`[Tron] Skipping TransferContract with missing to_address or amount in tx ${tx.txID}`);
-                                    continue;
-                                }
-
-                                const toAddressBase58 = this.tronWebInstance.address.fromHex(toAddressHex); // API gives hex
-                                const ownerAddressBase58 = this.tronWebInstance.address.fromHex(ownerAddressHex); // API gives hex
-
-                                if (trackedAddressesBase58.includes(toAddressBase58)) {
-                                    logger.info(`[Tron] Detected incoming native TRX transfer to ${toAddressBase58} in tx ${tx.txID}`);
-
-                                    const adaptedTx = {
+                                if (trackedAddresses.includes(toAddressBase58Canonical)) {
+                                    logger.info(`[TRON NATIVE MATCH] Block: ${blockNum}, TXID: ${tx.txID}, To: ${toAddressBase58Canonical} (matches tracked ${toAddressBase58Canonical}), Amount: ${contract.parameter.value.amount / 1_000_000} TRX`);
+                                    const tronTx: TronTransaction = {
                                         txID: tx.txID,
-                                        blockNumber: block.block_header.raw_data.number,
-                                        blockTimeStamp: tx.raw_data.timestamp, // Use transaction timestamp
-                                        contractType: 1, // For compatibility if processNativeTransfer expects it
-                                        ownerAddress: ownerAddressBase58,
-                                        toAddress: toAddressBase58,
-                                        amount: amount,
-                                        contractRet: 'SUCCESS',
+                                        blockNumber: blockNum,
+                                        blockTimeStamp: tx.raw_data.timestamp,
+                                        contractType: 1,
+                                        ownerAddress: this.tronWebInstance.address.fromHex(contract.parameter.value.owner_address),
+                                        toAddress: toAddressBase58Canonical,
+                                        amount: contract.parameter.value.amount,
+                                        contractRet: 'SUCCESS'
                                     };
-                                    await this.processNativeTransfer(adaptedTx as any);
+                                    await this.processNativeTransfer(tronTx);
                                 }
+                            } catch (hexError: any) {
+                                logger.warn(`[Tron CheckForNewBlocks] Error converting hex address ${toAddressHex} for TXID ${tx.txID} in block ${blockNum}: ${hexError.message}`);
                             }
                         }
                     }
                 }
-            } catch (error) {
-                logger.error(`Error processing block ${blockNum}:`, error);
-                // Decide if we should stop or continue to next block.
-                // For now, we'll log and continue, but this might mean missing this block's transactions.
-                // A more robust solution might retry this block or pause polling.
-                // If an error here is persistent, it might require stopping and manual intervention.
-                // To prevent getting stuck, we will update lastProcessedBlockNumber to allow moving to the next block
-                // This specific error might be a temporary network issue or an issue with a specific block.
-                // However, this means if a block is consistently failing, its transactions might be missed.
-                // Consider a specific retry mechanism for individual block fetching/processing.
+            } catch (error: any) {
+                logger.error(`Error processing block ${blockNum}:`, error.message);
             }
         }
         this.lastProcessedBlockNumber = endBlock;
@@ -435,29 +438,36 @@ export class TronConnectionManager {
         if (!this.eventHandler) return;
 
         try {
-            const fromAddress = tx.ownerAddress;
-            const toAddress = tx.toAddress!;
             const amount = tx.amount || 0;
+            const fromAddress = tx.ownerAddress; // This is Base58 from adaptedTx
+            const toAddress = tx.toAddress!;   // This is Base58 from adaptedTx
 
             logger.debug(`[Tron] Native TRX transfer: ${fromAddress} -> ${toAddress}, Amount: ${amount / 1_000_000} TRX`);
 
-            // Get TRX price for USD value calculation
-            const tokenData = await this.tokenService.getToken('TRX');
-            const tokenPrice = tokenData?.price || 0;
-            const usdValue = tokenPrice ? (amount / 1_000_000) * tokenPrice : 0;
+            // Get TRX price and decimals for USD value calculation
+            const trxTokenInfo = await this.tokenService.getToken('TRX', 'tron');
+            const tokenDecimals = trxTokenInfo?.decimals ?? 6; // Default TRX decimals to 6 if not found
+            const tokenPrice = trxTokenInfo?.price ?? 0; // Default price to 0 if not found
+
+            const formattedAmount = (amount / Math.pow(10, tokenDecimals)).toString();
+            const usdValue = tokenPrice ? (amount / Math.pow(10, tokenDecimals)) * tokenPrice : 0;
 
             // Send notification
             await this.notificationService.notifyDeposit(
-                toAddress,
-                amount.toString(),
-                'TRX',
-                usdValue,
-                tx.txID,
-                {
+                toAddress, // recipientAddress
+                amount.toString(), // rawValue
+                formattedAmount, // formattedValue
+                'TRX', // tokenSymbol
+                tokenDecimals, // tokenDecimals
+                'TRX', // tokenContractAddress (native token symbol, or undefined)
+                usdValue, // usdValue
+                tx.txID, // transactionHash
+                fromAddress, // senderAddress
+                BigInt(tx.blockNumber), // blockNumber
+                { // depositContext
                     chainId: this.TRON_CHAIN_ID.toString(),
-                    chainType: 'tron',
-                    tokenContract: 'TRX',
-                    blockNumber: BigInt(tx.blockNumber)
+                    chainName: 'Tron',
+                    chainType: 'TRON'
                 }
             );
 
@@ -691,46 +701,64 @@ export class TronConnectionManager {
         if (!this.eventHandler) return;
 
         try {
-            // Ensure from_address is also validated if used beyond logging
-            const fromAddressBase58 = this.normalizeAndValidateTronAddress(transfer.from_address);
-            const toAddressBase58 = validatedToAddressBase58; // Already validated
-            const tokenAddressBase58 = this.normalizeAndValidateTronAddress(transfer.contract_address); // Validate contract address from event
+            // Fetch token details from TokenService first, fallback to event data
+            const tokenInfoFromDb = await this.tokenService.getTokenByAddress('tron', transfer.contract_address);
 
-            if (!fromAddressBase58 || !tokenAddressBase58) {
-                logger.warn(`[Tron] Skipping TRC20 transfer due to invalid from/token address. TxID: ${transfer.transaction_id}. From: ${transfer.from_address}, Token: ${transfer.contract_address}`);
-                return;
+            const tokenSymbol = tokenInfoFromDb?.symbol || transfer.symbol || 'Unknown TRC20';
+            const tokenDecimals = tokenInfoFromDb?.decimals ?? transfer.decimals ?? 0;
+            const tokenPrice = tokenInfoFromDb?.price ?? 0; // Default to 0 if no price in DB
+
+            const rawAmount = transfer.value; // String as per TronTransferEvent
+            const numericAmount = BigInt(rawAmount);
+
+            let formattedAmount = '0';
+            if (tokenDecimals > 0) {
+                const divisor = BigInt(10) ** BigInt(tokenDecimals);
+                // Handle potential for floating point by doing division then toString.
+                // For very large numbers or high precision, a BigNumber library would be better.
+                const quotient = Number(numericAmount) / Number(divisor);
+                formattedAmount = quotient.toString();
+            } else {
+                formattedAmount = numericAmount.toString();
             }
 
-            const value = transfer.value;
-            const decimals = transfer.decimals;
-            const symbol = transfer.symbol;
+            const usdValue = tokenPrice ? (Number(numericAmount) / Math.pow(10, tokenDecimals)) * tokenPrice : 0;
 
-            logger.debug(`[Tron] TRC20 transfer: ${fromAddressBase58} -> ${toAddressBase58}, Amount: ${BigInt(value) / BigInt(10 ** decimals)} ${symbol}`);
+            let senderAddressBase58 = transfer.from_address;
+            // Ensure from_address (sender) is Base58; TronScan API usually provides Base58 for from/to in TRC20 transfers
+            // but if it were hex (e.g. 41...), convert it.
+            if (this.tronWebInstance.utils.isHex(senderAddressBase58) && senderAddressBase58.toLowerCase().startsWith('41')) {
+                try {
+                    senderAddressBase58 = this.tronWebInstance.address.fromHex(senderAddressBase58);
+                } catch (e) {
+                    logger.warn(`[Tron] Failed to convert sender hex ${transfer.from_address} to Base58 in processTokenTransfer. Using original.`);
+                }
+            }
 
-            // Get token price for USD value calculation
-            const tokenData = await this.tokenService.getToken(symbol);
-            const tokenPrice = tokenData?.price || 0;
-            const usdValue = tokenPrice ? Number(value) * tokenPrice / Math.pow(10, decimals) : 0;
+            logger.debug(`[Tron] TRC20 transfer: ${senderAddressBase58} -> ${validatedToAddressBase58}, Value: ${rawAmount} (${formattedAmount} ${tokenSymbol}), Contract: ${transfer.contract_address}`);
 
-            // Send notification
             await this.notificationService.notifyDeposit(
-                toAddressBase58,
-                value,
-                symbol,
-                usdValue,
-                transfer.transaction_id,
-                {
+                validatedToAddressBase58,       // recipientAddress
+                rawAmount,                      // rawValue
+                formattedAmount,                // formattedValue
+                tokenSymbol,                    // tokenSymbol
+                tokenDecimals,                  // tokenDecimals
+                transfer.contract_address,      // tokenContractAddress
+                usdValue,                       // usdValue
+                transfer.transaction_id,        // transactionHash
+                senderAddressBase58,            // senderAddress
+                BigInt(transfer.block_number),  // blockNumber
+                { // depositContext
                     chainId: this.TRON_CHAIN_ID.toString(),
-                    chainType: 'tron',
-                    tokenContract: tokenAddressBase58,
-                    blockNumber: transfer.block_number
+                    chainName: 'Tron',
+                    chainType: 'TRON'
                 }
             );
 
             // Convert addresses to hex format for consistency with EVM chains
-            const fromHex = ('0x' + this.tronWebInstance.address.toHex(fromAddressBase58)) as Hex;
-            const toHex = ('0x' + this.tronWebInstance.address.toHex(toAddressBase58)) as Hex;
-            const tokenHex = ('0x' + this.tronWebInstance.address.toHex(tokenAddressBase58)) as Hex;
+            const fromHex = ('0x' + this.tronWebInstance.address.toHex(senderAddressBase58)) as Hex;
+            const toHex = ('0x' + this.tronWebInstance.address.toHex(validatedToAddressBase58)) as Hex;
+            const tokenHex = ('0x' + this.tronWebInstance.address.toHex(transfer.contract_address)) as Hex;
 
             // Emit event
             this.eventHandler({
@@ -739,7 +767,7 @@ export class TronConnectionManager {
                 data: {
                     from: fromHex,
                     to: toHex,
-                    value: BigInt(value),
+                    value: BigInt(numericAmount),
                     transactionHash: transfer.transaction_id as Hex,
                     blockNumber: BigInt(transfer.block_number),
                     logIndex: 0, // Tron doesn't have log indices
@@ -755,34 +783,29 @@ export class TronConnectionManager {
      * Update connections with a new event handler
      */
     public updateConnections(newEventHandler?: EventHandlerCallback | null): void {
-        logger.info('Updating Tron connections');
-
-        if (newEventHandler !== undefined) {
-            this.eventHandler = newEventHandler;
-        }
-
-        // Stop existing polling mechanisms
-        if (this.blockPollingInterval) {
-            clearInterval(this.blockPollingInterval);
-            this.blockPollingInterval = null;
-        }
-        this.perTokenPollingIntervals.forEach(interval => clearInterval(interval));
-        this.perTokenPollingIntervals.clear();
-        // Note: tokenLastProcessedTimestamps should ideally be preserved unless token list changes significantly
-
-        logger.info('Tron polling mechanisms stopped for update. Restarting...');
-        // Restart polling, this will use the existing lastProcessedBlockNumber if isInitialized is true
-        this.start(); // this.start() will now respect the isInitialized flag
+        this.eventHandler = newEventHandler === undefined ? this.eventHandler : newEventHandler;
+        // No immediate re-initialization needed for Tron, as polling loops will pick up changes.
+        logger.info('[Tron] Connections updated (event handler potentially changed).');
     }
 
-    /**
-     * Update tracked addresses
-     */
-    public updateTrackedAddresses(newAddressesHint: Hex[], newEventHandler?: EventHandlerCallback | null): void {
-        logger.info(`Updating tracked addresses for Tron. New count: ${newAddressesHint.length}`);
-
+    // This method is called by WsConnectionManager when its list of addresses changes.
+    // newAddressesHint contains ALL addresses from AddressManager (EVM, Tron, etc.)
+    public updateTrackedAddresses(newAddressesHint: string[], newEventHandler?: EventHandlerCallback | null): void {
         if (newEventHandler !== undefined) {
             this.eventHandler = newEventHandler;
         }
+        logger.info(`[Tron] Received address update hint. Total hints: ${newAddressesHint.length}. Current tracked: ${this.addressManager.getTrackedAddressCount()}`);
+        // The AddressManager (which is shared) has already been updated by WsConnectionManager.
+        // TronConnectionManager relies on this.addressManager.getTrackedAddresses() which will reflect the latest.
+        // It then internally filters these for valid Tron addresses using normalizeAndValidateTronAddress.
+
+        // If polling logic needs to be reset or specifically restarted for certain tokens due to address changes,
+        // that logic would go here. For example, restart polling for tokens if new addresses are added.
+        // For now, the existing polling loops will use the updated address list from AddressManager.
+
+        // Example: If a full restart of token polling is desired on any address change:
+        // this.stopAllTokenContractPolling(); // Stop existing token polls
+        // this.startAllTokenContractPolling(); // Restart with new addresses from AddressManager
+        logger.info("[Tron] Tracked addresses updated. Polling loops will use the new list.");
     }
 } 

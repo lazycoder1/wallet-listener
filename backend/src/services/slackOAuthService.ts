@@ -1,4 +1,5 @@
 import { PrismaClient, Prisma } from '@prisma/client';
+import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library'; // Attempting direct import
 import axios from 'axios'; // Or use Bun's fetch or node-fetch
 import crypto from 'crypto'; // For generating a secure random state
 import logger from '../config/logger'; // Assuming you have a logger configured
@@ -195,8 +196,8 @@ export async function exchangeCodeForToken(code: string): Promise<SlackOAuthV2Ac
 // Using 'any' for return type temporarily to bypass SlackConfiguration import issue
 export async function saveOrUpdateSlackInstallation(
     oauthData: SlackOAuthV2AccessResponse,
-    companyId: number | null // companyId can be null if state verification fails or for a generic install link (though our flow now requires state)
-): Promise<any> {
+    companyId: number
+): Promise<Prisma.SlackConfigurationGetPayload<{ include: { company: false } }>> { // More specific return type
     const teamId = oauthData.team?.id;
     const teamName = oauthData.team?.name;
     const appId = oauthData.app_id;
@@ -205,73 +206,105 @@ export async function saveOrUpdateSlackInstallation(
     const scopes = oauthData.scope;
 
     if (!teamId || !accessToken || !botUserId) {
-        logger.error(`saveOrUpdateSlackInstallation: Missing critical information in Slack OAuth response: ${JSON.stringify(oauthData)}`);
-        throw new AppError({ httpCode: HttpCode.INTERNAL_SERVER_ERROR, description: 'Received incomplete data from Slack.' });
+        logger.error(`saveOrUpdateSlackInstallation: Missing critical information: ${JSON.stringify(oauthData)}`);
+        throw new AppError({ httpCode: HttpCode.INTERNAL_SERVER_ERROR, description: 'Incomplete data from Slack.' });
     }
-
-    const storedAccessToken = accessToken; // Placeholder for encryption
 
     try {
-        // If a companyId is provided (meaning the install was initiated for a specific company)
-        // and that company was previously linked to a *different* Slack team,
-        // we should clear the companyId from that old SlackConfiguration record.
-        if (companyId) {
-            await prisma.slackConfiguration.updateMany({
-                where: {
-                    companyId: companyId,
-                    NOT: {
-                        slackTeamId: teamId, // Don't touch if it's already linked to this same team
-                    },
-                },
-                data: {
-                    companyId: null, // Or handle as per business logic, e.g., set status to 'unlinked'
-                    installationStatus: 'unlinked_due_to_new_installation_for_company',
-                    // botUserId: null, // Optionally clear other fields too
-                    // accessToken: null, 
-                },
-            });
-        }
+        return await prisma.$transaction(async (tx) => {
+            // Data to be set on the target SlackConfiguration record
+            const commonUpdateData = {
+                slackTeamName: teamName,
+                accessToken: accessToken,
+                botUserId: botUserId,
+                scopes: scopes,
+                slackAppId: appId,
+                rawOAuthResponse: oauthData as any, // Consider a more specific type or JSON.stringify if needed
+                installationStatus: 'linked' as const,
+                isEnabled: true,
+                lastError: null,
+                updatedAt: new Date(), // Explicitly set updatedAt for updates
+            };
 
-        // Now, upsert the current installation for the given slackTeamId
-        const newInstallation = await prisma.slackConfiguration.upsert({
-            where: { slackTeamId: teamId },
-            create: {
-                slackTeamId: teamId,
-                slackTeamName: teamName,
-                accessToken: storedAccessToken,
-                botUserId: botUserId,
-                scopes: scopes,
-                slackAppId: appId,
-                rawOAuthResponse: oauthData as any,
-                installationStatus: companyId ? 'linked' : 'pending_link',
-                companyId: companyId, // This will be the validated companyId
-                isEnabled: true,
-                lastError: null, // Clear any previous error on new successful install/update
-            },
-            update: {
-                slackTeamName: teamName,
-                accessToken: storedAccessToken,
-                botUserId: botUserId,
-                scopes: scopes,
-                slackAppId: appId,
-                rawOAuthResponse: oauthData as any,
-                isEnabled: true,
-                lastError: null, // Clear any previous error
-                // Link to the company if companyId is provided from a successful state verification
-                ...(companyId && {
-                    companyId: companyId,
-                    installationStatus: 'linked'
-                }),
-                // If companyId is NOT provided (e.g. generic install link, though our flow uses state),
-                // preserve existing companyId or keep it null. 
-                // The current spread (...) handles this correctly for provided companyId.
-                // If companyId is null, it won't override an existing linked companyId here unless explicitly told to.
-            },
+            // 1. Find any existing configuration for the incoming teamId
+            const existingConfigForTeam = await tx.slackConfiguration.findUnique({
+                where: { slackTeamId: teamId },
+            });
+
+            // 2. Find any existing configuration for the current companyId
+            // This is the record we ideally want to update or create if it doesn't exist.
+            const existingConfigForCompany = await tx.slackConfiguration.findUnique({
+                where: { companyId: companyId },
+            });
+
+            let finalInstallation: Prisma.SlackConfigurationGetPayload<{ include: { company: false } }>;
+
+            if (existingConfigForCompany) {
+                // Case 1: The company already has a SlackConfiguration record.
+                // We need to update this record with the new teamId and OAuth data.
+
+                if (existingConfigForTeam && existingConfigForTeam.id !== existingConfigForCompany.id) {
+                    // The new teamId (from OAuth) is currently associated with a *different* SlackConfiguration record.
+                    // This different record is now effectively an orphan (its companyId should be null or different).
+                    // To maintain slackTeamId uniqueness, we must delete this orphaned record.
+                    logger.info(`Deleting orphaned Slack config (ID: ${existingConfigForTeam.id}) for team ${teamId} before reassigning to company ${companyId}.`);
+                    await tx.slackConfiguration.delete({
+                        where: { id: existingConfigForTeam.id },
+                    });
+                }
+
+                // Update the company's existing SlackConfiguration record.
+                logger.info(`Updating existing Slack config (ID: ${existingConfigForCompany.id}) for company ${companyId} with new team ${teamId}.`);
+                finalInstallation = await tx.slackConfiguration.update({
+                    where: { id: existingConfigForCompany.id },
+                    data: {
+                        ...commonUpdateData,
+                        slackTeamId: teamId, // Assign/update to the new teamId
+                    },
+                });
+            } else {
+                // Case 2: The company does NOT have an existing SlackConfiguration record.
+
+                if (existingConfigForTeam) {
+                    // A SlackConfiguration record for the new teamId already exists (it's an orphan).
+                    // We can take over this record by updating its companyId and other details.
+                    logger.info(`Taking over existing Slack config (ID: ${existingConfigForTeam.id}) for team ${teamId} and linking to new company ${companyId}.`);
+                    finalInstallation = await tx.slackConfiguration.update({
+                        where: { id: existingConfigForTeam.id }, // or where: { slackTeamId: teamId }
+                        data: {
+                            ...commonUpdateData,
+                            companyId: companyId,   // Link to the current company
+                            slackTeamId: teamId,    // Ensure teamId is set (should already be correct)
+                        },
+                    });
+                } else {
+                    // Case 3: No record for the company, and no pre-existing record for the teamId.
+                    // Create a brand new SlackConfiguration record.
+                    logger.info(`Creating new Slack config for company ${companyId} and team ${teamId}.`);
+                    finalInstallation = await tx.slackConfiguration.create({
+                        data: {
+                            ...commonUpdateData,
+                            companyId: companyId,
+                            slackTeamId: teamId,
+                        },
+                    });
+                }
+            }
+            logger.info(`Successfully saved/updated Slack config for company ${companyId}, team ${teamId}. Final ID: ${finalInstallation.id}`);
+            return finalInstallation;
         });
-        logger.info(`Successfully upserted Slack configuration for team_id: ${teamId}, linked to companyId: ${companyId}`);
-        return newInstallation;
     } catch (dbError: any) {
-        logger.error(`Database error saving Slack config for team_id ${teamId}: ${dbError}`, { error: dbError });
-        throw new AppError({ httpCode: HttpCode.INTERNAL_SERVER_ERROR, description: 'DB error saving Slack config.', cause: dbError });
+        logger.error(`DB transaction error for companyId ${companyId}, teamId ${teamId}: ${dbError.message}`, { stack: dbError.stack, code: dbError.code, meta: dbError.meta });
+        // Removed the specific P2002 check here as the logic above should prevent it.
+        // If it still occurs, it indicates a flaw in the transaction logic or an unexpected race condition.
+        throw new AppError({
+            httpCode: HttpCode.INTERNAL_SERVER_ERROR,
+            description: 'Failed to save Slack integration details due to a database issue.',
+            cause: dbError
+        });
     }
-} 
+}
+
+// --- Other Slack Service Functions (Get Installation, Send Message etc.) ---
+
+// ... existing code ... 

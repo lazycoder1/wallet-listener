@@ -30,7 +30,7 @@ export type UnifiedTransferEvent =
 
 export type EventHandlerCallback = (event: UnifiedTransferEvent) => void;
 
-export type ChainType = 'evm' | 'tron';
+export type ChainType = 'EVM' | 'TRON';
 
 // --- MOCK DATABASE FUNCTION --- (Replace with actual DB call using Prisma)
 async function fetchAddressesFromDB(): Promise<Hex[]> {
@@ -62,7 +62,7 @@ export class WsConnectionManager {
 
     constructor(
         private readonly refreshIntervalMinutes: number = 5,
-        chainType: ChainType = 'evm'
+        chainType: ChainType = 'EVM'
     ) {
         this.addressManager = new AddressManager();
         this.addressService = new AddressService();
@@ -75,30 +75,35 @@ export class WsConnectionManager {
         this.eventHandler = handler;
     }
 
-    private async updateConnectionsWithNewAddresses(newAddresses: Hex[]): Promise<void> {
+    private async updateConnectionsWithNewAddresses(newAddresses: string[]): Promise<void> {
         this.addressManager.updateAddresses(newAddresses);
-        logger.info("Internal: Updating connections. Current tracked addresses from AddressManager:", this.addressManager.getTrackedAddresses());
+        const allTrackedAddresses = this.addressManager.getTrackedAddresses();
+        logger.info("Internal: Updating connections. Current tracked addresses from AddressManager:", allTrackedAddresses);
 
-        if (this.chainType === 'evm' && this.evmManager) {
-            this.evmManager.updateTrackedAddresses(this.addressManager.getTrackedAddresses(), this.eventHandler);
-        } else if (this.chainType === 'tron' && this.tronManager) {
-            this.tronManager.updateTrackedAddresses(this.addressManager.getTrackedAddresses(), this.eventHandler);
+        if (this.chainType === 'EVM' && this.evmManager) {
+            const evmAddresses = allTrackedAddresses
+                .filter(addr => typeof addr === 'string' && addr.startsWith('0x') && addr.length === 42)
+                .map(addr => addr.toLowerCase() as Hex);
+            this.evmManager.updateTrackedAddresses(evmAddresses, this.eventHandler);
+        } else if (this.chainType === 'TRON' && this.tronManager) {
+            // Assuming tronManager can handle a string[] and does its own filtering/validation
+            this.tronManager.updateTrackedAddresses(allTrackedAddresses, this.eventHandler);
         }
     }
 
     public async reloadAddressesFromDB(): Promise<void> {
         logger.info("Reloading addresses from DB...");
         try {
-            const addressesFromDB = await this.addressService.getActiveAddresses();
+            const addressesFromDB = await this.addressService.getActiveAddresses(); // Returns string[]
             await this.updateConnectionsWithNewAddresses(addressesFromDB);
         } catch (error) {
             logger.error("Error reloading addresses from DB:", error);
         }
     }
 
-    public async startConnections(initialAddresses?: Hex[]): Promise<void> {
+    public async startConnections(initialAddresses?: string[]): Promise<void> {
         if (initialAddresses && initialAddresses.length > 0) {
-            this.addressManager.updateAddresses(initialAddresses.map(a => a.toLowerCase() as Hex));
+            this.addressManager.updateAddresses(initialAddresses); // AddressManager handles normalization
             logger.info("Starting connections with provided initial addresses. Count:", this.addressManager.getTrackedAddressCount());
         } else {
             logger.info("No initial addresses provided, attempting to load from DB...");
@@ -112,10 +117,10 @@ export class WsConnectionManager {
         }
 
         // Initialize and start the appropriate manager based on chain type
-        if (this.chainType === 'evm') {
+        if (this.chainType === 'EVM') {
             this.evmManager = new EvmConnectionManager(this.addressManager, this.eventHandler);
             this.evmManager.start();
-        } else if (this.chainType === 'tron') {
+        } else if (this.chainType === 'TRON') {
             this.tronManager = new TronConnectionManager(this.addressManager, this.eventHandler);
             this.tronManager.start();
         }
@@ -143,10 +148,10 @@ export class WsConnectionManager {
             logger.info("Stopped periodic address refresh.");
         }
 
-        if (this.chainType === 'evm' && this.evmManager) {
+        if (this.chainType === 'EVM' && this.evmManager) {
             this.evmManager.stop();
             this.evmManager = null;
-        } else if (this.chainType === 'tron' && this.tronManager) {
+        } else if (this.chainType === 'TRON' && this.tronManager) {
             this.tronManager.stop();
             this.tronManager = null;
         }

@@ -8,16 +8,14 @@ export class AddressService {
         this.prisma = new PrismaClient();
     }
 
-    async getActiveAddresses(): Promise<Hex[]> {
+    async getActiveAddresses(): Promise<string[]> {
         try {
             const activeCompanyAddresses = await this.prisma.companyAddress.findMany({
                 where: { isActive: true },
                 select: { address: { select: { address: true } } }
             });
 
-            return activeCompanyAddresses.map(ca =>
-                ca.address.address.toLowerCase() as Hex
-            );
+            return activeCompanyAddresses.map((ca: { address: { address: string } }) => ca.address.address);
         } catch (error) {
             console.error('Error fetching active addresses:', error);
             return [];
@@ -58,7 +56,7 @@ export class AddressService {
                     companyAddresses: {
                         upsert: {
                             where: {
-                                companyId_addressId: {
+                                uq_company_address: {
                                     companyId,
                                     addressId: (await this.prisma.address.findUnique({
                                         where: { address }

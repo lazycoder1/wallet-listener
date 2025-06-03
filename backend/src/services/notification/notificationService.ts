@@ -26,7 +26,7 @@ interface DepositNotificationData {
     senderAddress?: string;
     chainName: string;
     chainId: number | string;
-    chainType: 'evm' | 'tron';
+    chainType: 'EVM' | 'TRON';
     blockNumber?: bigint | number;
     summaryMessage: string;
     [key: string]: any;
@@ -83,7 +83,7 @@ export class NotificationService {
         depositContext: {
             chainId: number | string;
             chainName: string;
-            chainType: 'evm' | 'tron';
+            chainType: 'EVM' | 'TRON';
             [key: string]: any;
         }
     ): Promise<void> {
@@ -91,11 +91,11 @@ export class NotificationService {
         let topTokensMessage = "";
 
         try {
-            if (depositContext.chainType === 'tron') {
+            if (depositContext.chainType === 'TRON') {
                 const { totalUsdBalance, topTokens } = await this.balanceService.fetchTronScanTokenBalances(recipientAddress);
                 totalBalanceMessage = `Wallet total Tron balance is $${totalUsdBalance.toFixed(2)}.`;
                 if (topTokens.length > 0) {
-                    topTokensMessage = " Top tokens: " + topTokens.map(t => `${parseFloat(t.balance) / Math.pow(10, t.tokenDecimal)} ${t.tokenAbbr || t.tokenName} ($${(parseFloat(t.amount)).toFixed(2)})`).join(', ');
+                    topTokensMessage = " Top tokens: " + topTokens.map(t => `${parseFloat(t.balance) / Math.pow(10, t.tokenDecimal)} ${t.tokenAbbr || t.tokenName} ($${t.assetInUsd.toFixed(2)})`).join(', ');
                 }
             } else { // EVM or other types
                 const totalBalance = await this.balanceService.getTotalBalance(recipientAddress); // Existing EVM balance logic

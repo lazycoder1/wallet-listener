@@ -130,6 +130,8 @@ export class EvmConnectionManager {
             },
             onError: (error: Error) => {
                 logger.error(`[${chain.name}] Error watching blocks:`, error);
+                // Add more detailed logging
+                logger.error(`[${chain.name}] Full error object during block watching: ${JSON.stringify(error, Object.getOwnPropertyNames(error))}`);
             }
         });
         const currentUnsubs = this.unsubscribeCallbacksMap.get(chain.id) || [];
@@ -160,6 +162,8 @@ export class EvmConnectionManager {
             },
             onError: (error) => {
                 logger.error(`[${chain.name}] Error watching ERC20 transfers:`, error);
+                // Add more detailed logging
+                logger.error(`[${chain.name}] Full error object during ERC20 watching: ${JSON.stringify(error, Object.getOwnPropertyNames(error))}`);
             },
             args: {
                 to: validTrackedAddresses,
@@ -223,7 +227,7 @@ export class EvmConnectionManager {
                     {
                         chainId: chain.id,
                         chainName: chain.name,
-                        chainType: 'evm',
+                        chainType: 'EVM',
                     }
                 );
                 handler({
@@ -292,7 +296,8 @@ export class EvmConnectionManager {
                         {
                             chainId: chain.id,
                             chainName: chain.name,
-                            chainType: 'evm',
+                            chainType: 'EVM',
+                            tokenContractAddress: log.address
                         }
                     );
                 }
