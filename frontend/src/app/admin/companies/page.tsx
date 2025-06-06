@@ -206,9 +206,12 @@ export default function CompaniesPage() {
                       'Not configured'}
                   </td>
                   <td className='py-3 px-4'>
-                    {company.slackConfiguration?.slackTeamName ||
-                      company.slackConfiguration?.slackTeamId ||
-                      'Not configured'}
+                    {company.slackConfiguration?.slackTeamName &&
+                    company.slackConfiguration?.slackTeamId
+                      ? `${company.slackConfiguration.slackTeamName} (${company.slackConfiguration.slackTeamId})`
+                      : company.slackConfiguration?.slackTeamName ||
+                        company.slackConfiguration?.slackTeamId ||
+                        'Not configured'}
                   </td>
                   <td className='py-3 px-4'>
                     {company.slackConfiguration?.isEnabled ? 'Yes' : 'No'}

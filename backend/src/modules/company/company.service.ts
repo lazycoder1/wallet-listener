@@ -98,15 +98,23 @@ export class CompanyService {
         }
 
         if (slackConfigInput && Object.keys(slackConfigInput).length > 0) {
-            const slackData = buildSlackConfigPayload(slackConfigInput);
-            if (Object.keys(slackData).length > 0) {
-                companyUpdateData.slackConfiguration = {
-                    upsert: {
-                        create: slackData,
-                        update: slackData,
-                    },
-                };
-            }
+            // Fetch existing config to merge required fields
+            const existingConfig = await prisma.slackConfiguration.findUnique({ where: { companyId: id } });
+            const slackData = {
+                ...(existingConfig || {}),
+                ...buildSlackConfigPayload(slackConfigInput),
+            };
+            // Remove fields Prisma doesn't allow on create/update
+            delete slackData.id;
+            delete slackData.companyId;
+            delete slackData.createdAt;
+            delete slackData.updatedAt;
+            companyUpdateData.slackConfiguration = {
+                upsert: {
+                    create: slackData,
+                    update: slackData,
+                },
+            };
         }
 
         try {
