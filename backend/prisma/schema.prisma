@@ -89,12 +89,12 @@ model BatchAddress {
 
 model SlackConfiguration {
   id                   Int      @id @default(autoincrement())
-  companyId            Int?     @map("company_id")
+  companyId            Int      @unique @map("company_id")
   channelId            String?  @map("channel_id")
   channelName          String?  @map("channel_name")
   alertThreshold       Decimal  @default(0) @map("alert_threshold")
   isEnabled            Boolean  @default(true) @map("is_enabled")
-  slackTeamId          String?  @map("slack_team_id")
+  slackTeamId          String   @map("slack_team_id")
   slackTeamName        String?  @map("slack_team_name")
   accessToken          String?  @map("access_token")
   botUserId            String?  @map("bot_user_id")
@@ -105,9 +105,9 @@ model SlackConfiguration {
   lastError            String?  @map("last_error")
   createdAt            DateTime @default(now()) @map("created_at")
   updatedAt            DateTime @updatedAt @map("updated_at")
-  company              Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  company              Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
-  @@unique([companyId, slackTeamId], name: "uq_company_slack_team")
+  @@index([slackTeamId])
   @@map("slack_configurations")
 }
 
