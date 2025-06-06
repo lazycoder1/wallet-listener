@@ -6,6 +6,10 @@ import { TokenService } from '../token/tokenService';
 import axios from 'axios';
 import { PrismaClient } from '@prisma/client';
 
+// ============================================================================
+// SHARED INTERFACES
+// ============================================================================
+
 interface TokenBalance {
     contractAddress: string;
     tokenBalance: string;
@@ -13,15 +17,50 @@ interface TokenBalance {
     decimals?: number;
 }
 
-interface AlchemyBalanceResponse {
-    jsonrpc: string;
-    id: number;
-    result: {
-        tokenBalances: TokenBalance[];
-    };
+// ============================================================================
+// ALCHEMY EVM INTERFACES
+// ============================================================================
+
+interface AlchemyBalanceRequest {
+    addresses: Array<{
+        address: string;
+        networks: string[];
+    }>;
+    withMetadata?: boolean;
+    withPrices?: boolean;
+    includeNativeTokens?: boolean;
 }
 
-// Tron specific interfaces
+interface AlchemyTokenPrice {
+    currency: string;
+    value: string;
+    lastUpdatedAt: string;
+}
+
+interface AlchemyTokenMetadata {
+    name: string;
+    symbol: string;
+    decimals: number;
+}
+
+interface AlchemyTokenBalance {
+    network: string;
+    address: string;
+    tokenAddress: string | null; // null for native tokens
+    tokenBalance: string;
+    tokenMetadata: AlchemyTokenMetadata;
+    tokenPrices: AlchemyTokenPrice[];
+}
+
+interface AlchemyBalanceResponse {
+    tokens: AlchemyTokenBalance[];
+    pageKey?: string | null;
+}
+
+// ============================================================================
+// TRON INTERFACES
+// ============================================================================
+
 interface TronAccountResource {
     freeNetLimit: number;
     NetLimit: number;
@@ -129,6 +168,20 @@ interface TronScanTokensResponseOld {
     contractInfo: Record<string, any>;
 }
 
+// ============================================================================
+// NETWORK CONFIGURATIONS
+// ============================================================================
+
+const ALCHEMY_NETWORKS = {
+    ethereum: 'eth-mainnet',
+    polygon: 'polygon-mainnet',
+    bsc: 'bnb-mainnet'
+};
+
+// ============================================================================
+// MAIN BALANCE SERVICE
+// ============================================================================
+
 export class BalanceService {
     private static instance: BalanceService;
     private prisma: PrismaClient;
@@ -159,6 +212,208 @@ export class BalanceService {
         }
         return BalanceService.instance;
     }
+
+    // ========================================================================
+    // ALCHEMY EVM BALANCE METHODS
+    // ========================================================================
+
+    /**
+     * Get total EVM balance using Alchemy Portfolio API
+     */
+    public async getTotalBalanceAlchemy(address: string): Promise<number> {
+        try {
+            if (!this.isValidEthereumAddress(address)) {
+                throw new Error(`Invalid Ethereum address: ${address}`);
+            }
+
+            const alchemyBalances = await this.fetchAlchemyBalances(address);
+            const totalUsdValue = this.calculateTotalUsdValue(alchemyBalances);
+
+            logger.info('Balance fetch successful', {
+                address,
+                totalUsdValue: parseFloat(totalUsdValue.toFixed(2))
+            });
+
+            return totalUsdValue;
+
+        } catch (error: any) {
+            logger.error('Balance fetch failed', {
+                address,
+                error: error.message
+            });
+            return 0;
+        }
+    }
+
+    /**
+     * Fetch balances from Alchemy Portfolio API
+     */
+    private async fetchAlchemyBalances(address: string): Promise<AlchemyTokenBalance[]> {
+        const request: AlchemyBalanceRequest = {
+            addresses: [{
+                address,
+                networks: Object.values(ALCHEMY_NETWORKS)
+            }],
+            withMetadata: true,
+            withPrices: true,
+            includeNativeTokens: true
+        };
+
+        try {
+            const response = await axios.post(
+                `https://api.g.alchemy.com/data/v1/${appConfig.alchemy.apiKey}/assets/tokens/by-address`,
+                request,
+                {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
+                    timeout: 10000
+                }
+            );
+
+            if (!response.data || !response.data.data || !response.data.data.tokens) {
+                logger.warn('Invalid Alchemy API response structure', { address });
+                return [];
+            }
+
+            const tokens = response.data.data.tokens;
+            return tokens;
+
+        } catch (error: any) {
+            logger.error('Alchemy API request failed', {
+                address,
+                error: error.message,
+                status: error.response?.status
+            });
+            throw error;
+        }
+    }
+
+    /**
+ * Calculate total USD value from Alchemy token balances
+ */
+    private calculateTotalUsdValue(balances: AlchemyTokenBalance[]): number {
+        let totalUsd = 0;
+
+        for (const balance of balances) {
+            try {
+                const usdPrice = this.getUsdPrice(balance.tokenPrices);
+
+                // Handle native tokens (tokenAddress is null) with default 18 decimals
+                let decimals = balance.tokenMetadata.decimals;
+                if (decimals === null || decimals === undefined) {
+                    decimals = 18; // Default for native tokens (ETH, MATIC, BNB)
+                }
+
+                // Convert hex balance to decimal
+                const balanceHex = balance.tokenBalance;
+                const balanceBigInt = BigInt(balanceHex);
+                const tokenAmount = Number(balanceBigInt) / Math.pow(10, decimals);
+                const usdValue = tokenAmount * usdPrice;
+
+                totalUsd += usdValue;
+
+                // Only log significant balances to avoid spam
+                if (usdValue > 0.01) {
+                    logger.debug('Token balance', {
+                        network: balance.network,
+                        symbol: balance.tokenMetadata.symbol || 'NATIVE',
+                        usdValue: parseFloat(usdValue.toFixed(2))
+                    });
+                }
+
+            } catch (error) {
+                logger.warn('Error calculating token USD value', {
+                    tokenAddress: balance.tokenAddress,
+                    symbol: balance.tokenMetadata?.symbol,
+                    balanceHex: balance.tokenBalance,
+                    error: error instanceof Error ? error.message : 'Unknown error'
+                });
+            }
+        }
+
+        return totalUsd;
+    }
+
+    /**
+     * Get USD price from Alchemy price array
+     */
+    private getUsdPrice(prices: AlchemyTokenPrice[]): number {
+        const usdPrice = prices.find(p => p.currency.toLowerCase() === 'usd');
+        return usdPrice ? parseFloat(usdPrice.value) : 0;
+    }
+
+    /**
+     * Validate Ethereum address format
+     */
+    private isValidEthereumAddress(address: string): boolean {
+        return /^0x[a-fA-F0-9]{40}$/.test(address);
+    }
+
+    // ========================================================================
+    // TRON BALANCE METHODS (EXISTING LOGIC)
+    // ========================================================================
+
+    public async fetchTronScanTokenBalances(address: string): Promise<{ totalUsdBalance: number, topTokens: TronScanAsset[] }> {
+        const apiUrl = appConfig.tronScan.apiUrl || 'https://apilist.tronscanapi.com';
+        const endpoint = `${apiUrl}/api/account/token_asset_overview`;
+
+        try {
+            const params: any = {
+                address: address,
+                order_type: 'usd_desc'
+            };
+
+            if (appConfig.tronScan.apiKey) {
+                params.apikey = appConfig.tronScan.apiKey;
+            }
+
+            const response = await axios.get<TronScanAccountAssetOverviewResponse>(endpoint, {
+                params,
+                timeout: 10000,
+                headers: {
+                    'Accept': 'application/json',
+                }
+            });
+
+            if (response.data && Array.isArray(response.data.data)) {
+                const totalUsdBalance = response.data.totalAssetInUsd || 0;
+                const topTokens = response.data.data.slice(0, 5);
+
+                logger.info('TRON balance fetch successful', {
+                    address,
+                    totalUsdBalance,
+                    totalTokenCount: response.data.totalTokenCount || 0,
+                    topTokensCount: topTokens.length
+                });
+
+                return {
+                    totalUsdBalance,
+                    topTokens
+                };
+            } else {
+                logger.warn('Invalid TronScan API response structure', {
+                    address,
+                    response: response.data
+                });
+                return { totalUsdBalance: 0, topTokens: [] };
+            }
+
+        } catch (error: any) {
+            logger.error('Error fetching TRON balance from TronScan', {
+                address,
+                error: error.message,
+                status: error.response?.status,
+                endpoint
+            });
+            return { totalUsdBalance: 0, topTokens: [] };
+        }
+    }
+
+    // ========================================================================
+    // LEGACY EVM METHODS (KEPT FOR BACKWARD COMPATIBILITY)
+    // ========================================================================
 
     private async fetchNativeBalance(address: Address, chainId: number): Promise<number> {
         try {
@@ -200,36 +455,25 @@ export class BalanceService {
                 },
                 body: JSON.stringify({
                     jsonrpc: '2.0',
-                    id: 1,
                     method: 'alchemy_getTokenBalances',
-                    params: [address, 'erc20']
-                })
+                    params: [address, 'DEFAULT_TOKENS'],
+                    id: 1,
+                }),
             });
 
             if (!response.ok) {
-                throw new Error(`API error from ${chainInfo.name} (${chainInfo.rpcUrl}): ${response.statusText}`);
+                throw new Error(`HTTP error! status: ${response.status}`);
             }
 
-            const data = await response.json() as AlchemyBalanceResponse;
+            const data: any = await response.json();
+            const tokenBalances = data.result?.tokenBalances || [];
+
             let totalBalance = 0;
-
-            if (data.result && data.result.tokenBalances) {
-                for (const token of data.result.tokenBalances) {
-                    const tokenMetadata = await this.tokenService.getTokenByAddress(chainInfo.chain.name.toLowerCase(), token.contractAddress);
-                    if (!tokenMetadata) {
-                        logger.warn(`No metadata found for token ${token.contractAddress} on chain ${chainId} (${chainInfo.name})`);
-                        continue;
-                    }
-
-                    const balance = Number(token.tokenBalance) / Math.pow(10, tokenMetadata.decimals);
-                    if (tokenMetadata.price) {
-                        totalBalance += balance * tokenMetadata.price;
-                    } else {
-                        logger.warn(`No price found for token ${tokenMetadata.symbol} on chain ${chainId} (${chainInfo.name})`);
-                    }
+            for (const tokenBalance of tokenBalances) {
+                const balance = parseInt(tokenBalance.tokenBalance, 16);
+                if (balance > 0) {
+                    totalBalance += balance;
                 }
-            } else {
-                logger.warn(`No token balances found or unexpected response structure for ${address} on chain ${chainId} (${chainInfo.name})`);
             }
 
             return totalBalance;
@@ -241,125 +485,39 @@ export class BalanceService {
 
     private async fetchChainBalance(address: Address, chainId: number): Promise<number> {
         try {
-            const nativeBalance = await this.fetchNativeBalance(address, chainId);
-            const tokenBalance = await this.fetchTokenBalances(address, chainId);
-            return nativeBalance + tokenBalance;
+            const [nativeBalance, tokenBalance] = await Promise.all([
+                this.fetchNativeBalance(address, chainId),
+                this.fetchTokenBalances(address, chainId)
+            ]);
+
+            const totalBalance = nativeBalance + tokenBalance;
+            logger.info(`Chain ${chainId} balance for ${address}: $${totalBalance.toFixed(2)}`);
+
+            return totalBalance;
         } catch (error) {
-            logger.error(`Error fetching total chain balance for ${address} on chain ${chainId}:`, error);
+            logger.error(`Error fetching balance for chain ${chainId}:`, error);
             return 0;
         }
     }
 
-    // --- Old Tron Balance Methods (Commented out as fetchTronScanTokenBalances is preferred for total) ---
-    /*
-    private async fetchTronNativeBalance(address: string): Promise<number> {
-        try {
-            const response = await axios.get(`${appConfig.networks.tron.apiUrl}/v1/accounts/${address}`, {
-                headers: appConfig.networks.tron.apiKey ? {
-                    'TRON-PRO-API-KEY': appConfig.networks.tron.apiKey
-                } : undefined
-            });
-            if (response.data && response.data.data && response.data.data.length > 0) {
-                const account = response.data.data[0] as any; 
-                const balanceTrx = (account.balance || 0) / 1_000_000; 
-                const trxToken = await this.tokenService.getToken('TRX');
-                if (!trxToken?.price) {
-                    logger.warn(`No price found for TRX token in fetchTronNativeBalance`);
-                    return 0;
-                }
-                return balanceTrx * trxToken.price;
-            }
-            return 0;
-        } catch (error) {
-            logger.error('Error fetching Tron native balance:', error);
-            return 0;
-        }
-    }
-
-    private async fetchTronTokenBalances(address: string): Promise<number> {
-        logger.warn('fetchTronTokenBalances (old method) is deprecated. Use fetchTronScanTokenBalances.');
-        return 0; 
-    }
-
-    private async fetchTronBalance(address: string): Promise<number> {
-        logger.warn('fetchTronBalance (old method) is deprecated. Use fetchTronScanTokenBalances.');
-        const { totalUsdBalance } = await this.fetchTronScanTokenBalances(address);
-        return totalUsdBalance;
-    }
-    */
-
-    // --- NEW Tron Balance Method using /account/token_asset_overview ---
-    public async fetchTronScanTokenBalances(address: string): Promise<{ totalUsdBalance: number, topTokens: TronScanAsset[] }> {
-        try {
-            const tronScanApiUrl = appConfig.tronScan.apiUrl || 'https://apilist.tronscan.org/api';
-            const url = `${tronScanApiUrl}/account/token_asset_overview?address=${address}`;
-
-            logger.info(`[BalanceService] Fetching Tron asset overview for ${address} from ${url}`);
-
-            const headers: Record<string, string> = {
-                'Content-Type': 'application/json',
-            };
-            if (appConfig.tronScan.apiKey) {
-                // Ensure your apiKey is for tronscan.org if using that base URL
-                // headers['TRON-PRO-API-KEY'] = appConfig.tronScan.apiKey; 
-            }
-
-            const response = await axios.get<TronScanAccountAssetOverviewResponse>(url, { headers, timeout: 10000 });
-
-            // logger.debug(`[BalanceService] Raw response from ${url}:`, JSON.stringify(response.data, null, 2));
-
-            if (response.status !== 200 || !response.data || typeof response.data.totalAssetInUsd !== 'number') {
-                logger.error(`[BalanceService] Error fetching TronScan asset overview for ${address}: Invalid response status or data format. Status: ${response.status}`, { responseData: response.data });
-                return { totalUsdBalance: 0, topTokens: [] };
-            }
-
-            const overviewData = response.data;
-            let calculatedTotalUsdFromAssets = 0;
-
-            if (overviewData.data && Array.isArray(overviewData.data)) {
-                for (const asset of overviewData.data) {
-                    calculatedTotalUsdFromAssets += asset.assetInUsd || 0; // Ensure assetInUsd is a number
-                }
-            } else {
-                logger.warn(`[BalanceService] No 'data' array in TronScan asset overview for ${address}. Response:`, overviewData);
-            }
-
-            logger.info(`[BalanceService] Successfully fetched Tron asset overview for ${address}. Reported total USD: ${overviewData.totalAssetInUsd.toFixed(2)}, Calculated sum of assets USD from items: ${calculatedTotalUsdFromAssets.toFixed(2)}`);
-
-            return {
-                totalUsdBalance: overviewData.totalAssetInUsd,
-                topTokens: overviewData.data ? overviewData.data.slice(0, 5) : []
-            };
-
-        } catch (error: any) {
-            const apiUrlForError = `${appConfig.tronScan.apiUrl || 'https://apilist.tronscan.org/api'}/account/token_asset_overview?address=${address}`;
-            logger.error(`[BalanceService] Error in fetchTronScanTokenBalances for ${address}: ${error.message}`, {
-                url: apiUrlForError,
-                errorDetails: axios.isAxiosError(error) ? { status: error.response?.status, data: error.response?.data } : { stack: error.stack }
-            });
-            return { totalUsdBalance: 0, topTokens: [] };
-        }
-    }
-
-    // --- Unified Public Method --- 
+    /**
+     * Legacy method - get total EVM balance using individual RPC calls
+     * @deprecated Use getTotalBalanceAlchemy() instead for better performance
+     */
     public async getTotalBalance(address: string): Promise<number> {
         try {
-            // Tron address check (basic)
-            if (address.startsWith('T') && address.length === 34) {
-                const { totalUsdBalance } = await this.fetchTronScanTokenBalances(address);
-                return totalUsdBalance;
-            }
-
-            // EVM Logic (assuming address is hex if not Tron)
-            const normalizedAddress = address.toLowerCase() as Address;
-            const balances = await Promise.all(
-                this.chains.map(chain => this.fetchChainBalance(normalizedAddress, chain.chainId))
+            const addr = address as Address;
+            const chainBalances = await Promise.all(
+                this.chains.map(chain => this.fetchChainBalance(addr, chain.chainId))
             );
-            return balances.reduce((total, balance) => total + balance, 0);
-        } catch (error: any) {
-            logger.error(`[BalanceService] Error calculating total balance in getTotalBalance for ${address}: ${error.message}`);
-            // throw new AppError(HttpCode.INTERNAL_SERVER_ERROR, `Failed to get total balance: ${error.message}`);
-            return 0; // Default to 0 on error to prevent crashes, or re-throw if preferred
+
+            const totalBalance = chainBalances.reduce((sum, balance) => sum + balance, 0);
+            logger.info(`Total EVM balance for ${address}: $${totalBalance.toFixed(2)}`);
+
+            return totalBalance;
+        } catch (error) {
+            logger.error('Error calculating total balance:', error);
+            return 0;
         }
     }
 } 

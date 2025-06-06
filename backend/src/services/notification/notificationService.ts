@@ -98,7 +98,7 @@ export class NotificationService {
                     topTokensMessage = " Top tokens: " + topTokens.map(t => `${parseFloat(t.balance) / Math.pow(10, t.tokenDecimal)} ${t.tokenAbbr || t.tokenName} ($${t.assetInUsd.toFixed(2)})`).join(', ');
                 }
             } else { // EVM or other types
-                const totalBalance = await this.balanceService.getTotalBalance(recipientAddress); // Existing EVM balance logic
+                const totalBalance = await this.balanceService.getTotalBalanceAlchemy(recipientAddress); // New Alchemy-powered balance logic
                 totalBalanceMessage = `Wallet total EVM balance is $${totalBalance.toFixed(2)}.`;
             }
         } catch (balanceError) {

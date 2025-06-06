@@ -131,14 +131,19 @@ export class TokenService {
                     return;
                 }
 
-                const requestUrl = `${this.ALCHEMY_API_URL}/${appConfig.alchemy.apiKey}/tokens/by-symbol`;
+                const requestUrl = `${this.ALCHEMY_API_URL}/tokens/by-symbol`;
                 logger.info(`Attempting to fetch prices from URL: ${requestUrl} for symbols: ${symbols.join(',')}`);
 
+                // Create URLSearchParams with multiple symbols parameters (as per Alchemy API docs)
+                const params = new URLSearchParams();
+                symbols.forEach(symbol => params.append('symbols', symbol));
+
                 const response = await axios.get<AlchemyPriceResponse>(
-                    requestUrl,
+                    `${requestUrl}?${params.toString()}`,
                     {
-                        params: {
-                            symbols: symbols.join(',')
+                        headers: {
+                            'Authorization': `Bearer ${appConfig.alchemy.apiKey}`,
+                            'Content-Type': 'application/json',
                         },
                         timeout: 10000 // 10 second timeout
                     }
