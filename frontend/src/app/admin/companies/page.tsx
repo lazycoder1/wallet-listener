@@ -9,6 +9,8 @@ interface SlackConfig {
   channelName?: string | null;
   alertThreshold: number | string; // Assuming Decimal is serialized as string or number
   isEnabled: boolean;
+  slackTeamId?: string | null;
+  slackTeamName?: string | null;
 }
 
 interface Company {
@@ -187,6 +189,7 @@ export default function CompaniesPage() {
                 <th className='text-left py-3 px-4'>ID</th>
                 <th className='text-left py-3 px-4'>Name</th>
                 <th className='text-left py-3 px-4'>Slack Channel</th>
+                <th className='text-left py-3 px-4'>Slack Team</th>
                 <th className='text-left py-3 px-4'>Slack Enabled</th>
                 <th className='text-left py-3 px-4'>Alert Threshold</th>
                 <th className='text-left py-3 px-4'>Actions</th>
@@ -198,20 +201,20 @@ export default function CompaniesPage() {
                   <td className='py-3 px-4'>{company.id}</td>
                   <td className='py-3 px-4'>{company.name}</td>
                   <td className='py-3 px-4'>
-                    {company.slackConfiguration?.channelId || 'N/A'}
-                    {company.slackConfiguration?.channelName &&
-                      ` (${company.slackConfiguration.channelName})`}
+                    {company.slackConfiguration?.channelName ||
+                      company.slackConfiguration?.channelId ||
+                      'Not configured'}
                   </td>
                   <td className='py-3 px-4'>
-                    {company.slackConfiguration
-                      ? company.slackConfiguration.isEnabled
-                        ? 'Yes'
-                        : 'No'
-                      : 'N/A'}
+                    {company.slackConfiguration?.slackTeamName ||
+                      company.slackConfiguration?.slackTeamId ||
+                      'Not configured'}
                   </td>
                   <td className='py-3 px-4'>
-                    {company.slackConfiguration?.alertThreshold?.toString() ||
-                      'N/A'}
+                    {company.slackConfiguration?.isEnabled ? 'Yes' : 'No'}
+                  </td>
+                  <td className='py-3 px-4'>
+                    {company.slackConfiguration?.alertThreshold || 'Not set'}
                   </td>
                   <td className='py-3 px-4'>
                     <Link
