@@ -26,15 +26,16 @@ const TRANSFER_EVENT_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a116
 // EVM Chain Configuration
 interface EvmChain {
     viemChain: Chain; // Use the generic Chain type from viem
-    wsUrl: string;
+    httpUrl: string; // Changed from wsUrl to httpUrl
     name: string; // e.g., 'ethereum', 'polygon'
     id: number;
+    pollingInterval: number; // in milliseconds
 }
 
 const evmChainsConfig: EvmChain[] = [
-    { viemChain: mainnet, wsUrl: appConfig.networks.ethereum.wsUrl, name: 'Ethereum', id: mainnet.id },
-    { viemChain: polygon, wsUrl: appConfig.networks.polygon.wsUrl, name: 'Polygon', id: polygon.id },
-    { viemChain: bsc, wsUrl: appConfig.networks.bsc.wsUrl, name: 'BNB', id: bsc.id },
+    { viemChain: mainnet, httpUrl: appConfig.networks.ethereum.httpRpcUrl!, name: 'Ethereum', id: mainnet.id, pollingInterval: 8000 },
+    { viemChain: polygon, httpUrl: appConfig.networks.polygon.httpRpcUrl!, name: 'Polygon', id: polygon.id, pollingInterval: 2000 },
+    { viemChain: bsc, httpUrl: appConfig.networks.bsc.httpRpcUrl!, name: 'BNB', id: bsc.id, pollingInterval: 3000 },
 ];
 
 export class EvmConnectionManager {
@@ -72,15 +73,13 @@ export class EvmConnectionManager {
     }
 
     private initializeEvmClient(chain: EvmChain): PublicClient {
-        if (!chain.wsUrl) {
-            throw new Error(`WebSocket URL for ${chain.name} is not configured.`);
+        if (!chain.httpUrl) {
+            throw new Error(`HTTP RPC URL for ${chain.name} is not configured.`);
         }
-        logger.info(`Initializing EVM client for ${chain.name} on ${chain.wsUrl}`);
+        logger.info(`Initializing EVM client for ${chain.name} on ${chain.httpUrl} with polling interval ${chain.pollingInterval}ms`);
         const client = createPublicClient({
             chain: chain.viemChain,
-            transport: webSocket(chain.wsUrl, {
-                timeout: 60_000,
-            }),
+            transport: http(chain.httpUrl),
             batch: {
                 multicall: true, // Enable multicall for performance optimization
             },
@@ -132,7 +131,8 @@ export class EvmConnectionManager {
                 logger.error(`[${chain.name}] Error watching blocks:`, error);
                 // Add more detailed logging
                 logger.error(`[${chain.name}] Full error object during block watching: ${JSON.stringify(error, Object.getOwnPropertyNames(error))}`);
-            }
+            },
+            pollingInterval: chain.pollingInterval,
         });
         const currentUnsubs = this.unsubscribeCallbacksMap.get(chain.id) || [];
         currentUnsubs.push(unwatch);
@@ -169,6 +169,7 @@ export class EvmConnectionManager {
                 to: validTrackedAddresses,
             },
             poll: true,
+            pollingInterval: chain.pollingInterval,
         });
         const currentUnsubs = this.unsubscribeCallbacksMap.get(chain.id) || [];
         currentUnsubs.push(unwatch);
@@ -326,7 +327,7 @@ export class EvmConnectionManager {
         const initialAddressesRaw = this.addressManager.getTrackedAddresses();
         const initialValidEvmAddresses = this.getValidTrackedEvmAddresses();
         logger.info({
-            message: "Starting EVM WebSocket connections...",
+            message: "Starting EVM polling connections...",
             totalTrackedByManager: initialAddressesRaw.length,
             rawAddressesFromManager: JSON.stringify(initialAddressesRaw), // Log all addresses from manager
             validEvmAddressesForListeners: JSON.stringify(initialValidEvmAddresses), // Log addresses used by EVM listeners
@@ -389,7 +390,7 @@ export class EvmConnectionManager {
     }
 
     public stop() {
-        logger.info("Stopping EVM WebSocket connections...");
+        logger.info("Stopping EVM polling connections...");
         this.unsubscribeCallbacksMap.forEach((unsubs, chainId) => {
             logger.info(`Unsubscribing from EVM chain ID: ${chainId}`);
             unsubs.forEach(unsub => unsub());

@@ -6,14 +6,15 @@ We’ll build the admin panel in three progressive stages to keep the MVP lean, 
 
 ## Stage 1: Frontend‑Only Upload & Validation
 
-**Objective:** Enable admins to load CSV/XLSX, validate addresses in-browser, and preview results—all without touching the database.
+**Objective:** Enable admins to load CSV/XLSX, validate addresses in-browser, and preview file numbers such as number of addresses without touching the database.
 
 **Features & Tasks:**
 
 1. **File Input & UI**
 
     - File selector for CSV/XLSX (up to 50k rows)
-    - Company-name dropdown or text input
+    - Company-name text input
+    - Company wide threshold 
     - Mode toggle: `Replace` (default) vs. `Append`
 
 2. **Client‑Side Parsing**
@@ -35,6 +36,7 @@ We’ll build the admin panel in three progressive stages to keep the MVP lean, 
 
     - Display summary: ✓ Y valid, ✗ Z invalid
     - Show first 10 valid + first 10 invalid rows in a table
+    - Show how many EVM and how many Tron addresses
     - “Complete” banner when parsing/validation finishes
 
 5. **UX Polishing**

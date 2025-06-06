@@ -6,10 +6,10 @@ dotenv.config(); // Load .env file
 
 interface NetworkConfig {
     wsUrl: string;
+    httpRpcUrl?: string; // Renamed from httpApiUrl
     apiKey?: string; // Some providers might not need a separate key in the URL
     tronNativePollingIntervalMs?: number; // Added for Tron native polling
     // For Etherscan-like APIs
-    httpApiUrl?: string;
     httpApiKey?: string;
 }
 
@@ -46,15 +46,15 @@ export const config: AppConfig = {
     networks: {
         ethereum: {
             wsUrl: process.env.ETHEREUM_WSS_URL || '',
-            httpApiUrl: `https://eth-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_ID || ''}`,
+            httpRpcUrl: `https://eth-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_ID || ''}`,
         },
         polygon: {
             wsUrl: process.env.POLYGON_WSS_URL || '',
-            httpApiUrl: `https://polygon-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_ID || ''}`,
+            httpRpcUrl: `https://polygon-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_ID || ''}`,
         },
         bsc: {
             wsUrl: process.env.BNB_WSS_URL || '',
-            httpApiUrl: `https://bnb-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_ID || ''}`,
+            httpRpcUrl: `https://bnb-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_ID || ''}`,
         },
         tron: {
             wsUrl: process.env.TRONGRID_API_URL || 'https://api.trongrid.io',
