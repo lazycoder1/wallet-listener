@@ -133,6 +133,7 @@ export class EvmConnectionManager {
                 logger.error(`[${chain.name}] Full error object during block watching: ${JSON.stringify(error, Object.getOwnPropertyNames(error))}`);
             },
             pollingInterval: chain.pollingInterval,
+            poll: true,
         });
         const currentUnsubs = this.unsubscribeCallbacksMap.get(chain.id) || [];
         currentUnsubs.push(unwatch);

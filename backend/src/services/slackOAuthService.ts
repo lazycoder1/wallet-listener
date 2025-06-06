@@ -197,111 +197,67 @@ export async function exchangeCodeForToken(code: string): Promise<SlackOAuthV2Ac
 export async function saveOrUpdateSlackInstallation(
     oauthData: SlackOAuthV2AccessResponse,
     companyId: number
-): Promise<Prisma.SlackConfigurationGetPayload<{ include: { company: false } }>> { // More specific return type
-    const teamId = oauthData.team?.id;
-    const teamName = oauthData.team?.name;
-    const appId = oauthData.app_id;
-    const botUserId = oauthData.bot_user_id;
-    const accessToken = oauthData.access_token;
-    const scopes = oauthData.scope;
-
-    if (!teamId || !accessToken || !botUserId) {
-        logger.error(`saveOrUpdateSlackInstallation: Missing critical information: ${JSON.stringify(oauthData)}`);
-        throw new AppError({ httpCode: HttpCode.INTERNAL_SERVER_ERROR, description: 'Incomplete data from Slack.' });
+): Promise<Prisma.SlackConfigurationGetPayload<{ include: { company: false } }>> {
+    if (!oauthData.team?.id || !oauthData.access_token || !oauthData.bot_user_id) {
+        throw new AppError({
+            httpCode: HttpCode.BAD_REQUEST,
+            description: 'Invalid OAuth data: missing required fields',
+            isOperational: true
+        });
     }
 
     try {
-        return await prisma.$transaction(async (tx) => {
-            // Data to be set on the target SlackConfiguration record
-            const commonUpdateData = {
-                slackTeamName: teamName,
-                accessToken: accessToken,
-                botUserId: botUserId,
-                scopes: scopes,
-                slackAppId: appId,
-                rawOAuthResponse: oauthData as any, // Consider a more specific type or JSON.stringify if needed
-                installationStatus: 'linked' as const,
-                isEnabled: true,
-                lastError: null,
-                updatedAt: new Date(), // Explicitly set updatedAt for updates
-            };
-
-            // 1. Find any existing configuration for the incoming teamId
-            const existingConfigForTeam = await tx.slackConfiguration.findUnique({
-                where: { slackTeamId: teamId },
-            });
-
-            // 2. Find any existing configuration for the current companyId
-            // This is the record we ideally want to update or create if it doesn't exist.
-            const existingConfigForCompany = await tx.slackConfiguration.findUnique({
-                where: { companyId: companyId },
-            });
-
-            let finalInstallation: Prisma.SlackConfigurationGetPayload<{ include: { company: false } }>;
-
-            if (existingConfigForCompany) {
-                // Case 1: The company already has a SlackConfiguration record.
-                // We need to update this record with the new teamId and OAuth data.
-
-                if (existingConfigForTeam && existingConfigForTeam.id !== existingConfigForCompany.id) {
-                    // The new teamId (from OAuth) is currently associated with a *different* SlackConfiguration record.
-                    // This different record is now effectively an orphan (its companyId should be null or different).
-                    // To maintain slackTeamId uniqueness, we must delete this orphaned record.
-                    logger.info(`Deleting orphaned Slack config (ID: ${existingConfigForTeam.id}) for team ${teamId} before reassigning to company ${companyId}.`);
-                    await tx.slackConfiguration.delete({
-                        where: { id: existingConfigForTeam.id },
-                    });
-                }
-
-                // Update the company's existing SlackConfiguration record.
-                logger.info(`Updating existing Slack config (ID: ${existingConfigForCompany.id}) for company ${companyId} with new team ${teamId}.`);
-                finalInstallation = await tx.slackConfiguration.update({
-                    where: { id: existingConfigForCompany.id },
-                    data: {
-                        ...commonUpdateData,
-                        slackTeamId: teamId, // Assign/update to the new teamId
-                    },
-                });
-            } else {
-                // Case 2: The company does NOT have an existing SlackConfiguration record.
-
-                if (existingConfigForTeam) {
-                    // A SlackConfiguration record for the new teamId already exists (it's an orphan).
-                    // We can take over this record by updating its companyId and other details.
-                    logger.info(`Taking over existing Slack config (ID: ${existingConfigForTeam.id}) for team ${teamId} and linking to new company ${companyId}.`);
-                    finalInstallation = await tx.slackConfiguration.update({
-                        where: { id: existingConfigForTeam.id }, // or where: { slackTeamId: teamId }
-                        data: {
-                            ...commonUpdateData,
-                            companyId: companyId,   // Link to the current company
-                            slackTeamId: teamId,    // Ensure teamId is set (should already be correct)
-                        },
-                    });
-                } else {
-                    // Case 3: No record for the company, and no pre-existing record for the teamId.
-                    // Create a brand new SlackConfiguration record.
-                    logger.info(`Creating new Slack config for company ${companyId} and team ${teamId}.`);
-                    finalInstallation = await tx.slackConfiguration.create({
-                        data: {
-                            ...commonUpdateData,
-                            companyId: companyId,
-                            slackTeamId: teamId,
-                        },
-                    });
-                }
+        // First check if this company already has a configuration for this team
+        const existingConfig = await prisma.slackConfiguration.findFirst({
+            where: {
+                companyId,
+                slackTeamId: oauthData.team.id
             }
-            logger.info(`Successfully saved/updated Slack config for company ${companyId}, team ${teamId}. Final ID: ${finalInstallation.id}`);
-            return finalInstallation;
         });
-    } catch (dbError: any) {
-        logger.error(`DB transaction error for companyId ${companyId}, teamId ${teamId}: ${dbError.message}`, { stack: dbError.stack, code: dbError.code, meta: dbError.meta });
-        // Removed the specific P2002 check here as the logic above should prevent it.
-        // If it still occurs, it indicates a flaw in the transaction logic or an unexpected race condition.
-        throw new AppError({
-            httpCode: HttpCode.INTERNAL_SERVER_ERROR,
-            description: 'Failed to save Slack integration details due to a database issue.',
-            cause: dbError
-        });
+
+        if (existingConfig) {
+            // Update existing configuration
+            return await prisma.slackConfiguration.update({
+                where: {
+                    id: existingConfig.id
+                },
+                data: {
+                    accessToken: oauthData.access_token,
+                    botUserId: oauthData.bot_user_id,
+                    slackTeamName: oauthData.team.name,
+                    slackAppId: oauthData.app_id,
+                    scopes: oauthData.scope,
+                    rawOAuthResponse: oauthData as any,
+                    installationStatus: 'active',
+                    lastError: null
+                }
+            });
+        } else {
+            // Create new configuration
+            return await prisma.slackConfiguration.create({
+                data: {
+                    companyId,
+                    accessToken: oauthData.access_token,
+                    botUserId: oauthData.bot_user_id,
+                    slackTeamId: oauthData.team.id,
+                    slackTeamName: oauthData.team.name,
+                    slackAppId: oauthData.app_id,
+                    scopes: oauthData.scope,
+                    rawOAuthResponse: oauthData as any,
+                    installationStatus: 'active'
+                }
+            });
+        }
+    } catch (error) {
+        if (error instanceof PrismaClientKnownRequestError) {
+            logger.error(`Database error saving Slack installation: ${error.message}`, { error });
+            throw new AppError({
+                httpCode: HttpCode.INTERNAL_SERVER_ERROR,
+                description: 'Failed to save Slack integration configuration',
+                cause: error
+            });
+        }
+        throw error;
     }
 }
 
