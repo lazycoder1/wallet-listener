@@ -278,11 +278,29 @@ export class EvmConnectionManager {
                     chain.name.toLowerCase(),
                     log.address.toLowerCase()
                 );
-                const tokenSymbol = tokenData?.symbol || 'UNKNOWN_ERC20';
-                const tokenDecimals = tokenData?.decimals || 18;
-                const tokenPrice = tokenData?.price || 0;
+
+                // Only track and notify for known tokens that we have in our database
+                if (!tokenData) {
+                    // Log unknown token for future reference, but don't send notification
+                    const formattedValue = formatUnits(decodedLog.args.value, 18); // Use default 18 decimals for logging
+                    logger.info(`[${chain.name}] Unknown ERC20 token transfer detected:`, {
+                        tokenContract: log.address.toLowerCase(),
+                        to: toAddress,
+                        from: decodedLog.args.from.toLowerCase(),
+                        amount: formattedValue,
+                        transactionHash: log.transactionHash,
+                        blockNumber: log.blockNumber,
+                        chainId: chain.id
+                    });
+                    continue; // Skip notification for unknown tokens
+                }
+
+                const tokenSymbol = tokenData.symbol;
+                const tokenDecimals = tokenData.decimals;
+                const tokenPrice = tokenData.price || 0;
                 const formattedLogValue = formatUnits(decodedLog.args.value, tokenDecimals);
                 const usdValue = tokenPrice ? parseFloat(formattedLogValue) * tokenPrice : 0;
+
                 if (log.transactionHash && log.blockNumber) {
                     await this.notificationService.notifyDeposit(
                         toAddress,

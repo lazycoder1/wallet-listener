@@ -704,9 +704,30 @@ export class TronConnectionManager {
             // Fetch token details from TokenService first, fallback to event data
             const tokenInfoFromDb = await this.tokenService.getTokenByAddress('tron', transfer.contract_address);
 
-            const tokenSymbol = tokenInfoFromDb?.symbol || transfer.symbol || 'Unknown TRC20';
-            const tokenDecimals = tokenInfoFromDb?.decimals ?? transfer.decimals ?? 0;
-            const tokenPrice = tokenInfoFromDb?.price ?? 0; // Default to 0 if no price in DB
+            // Only track and notify for known tokens that we have in our database
+            if (!tokenInfoFromDb) {
+                // Log unknown token for future reference, but don't send notification
+                const rawAmount = transfer.value;
+                const numericAmount = BigInt(rawAmount);
+                const decimalsFromApi = transfer.decimals ?? 6; // TRX/USDT typically use 6 decimals
+                const formattedAmount = (Number(numericAmount) / Math.pow(10, decimalsFromApi)).toString();
+
+                logger.info(`[Tron] Unknown TRC20 token transfer detected:`, {
+                    tokenContract: transfer.contract_address,
+                    to: validatedToAddressBase58,
+                    from: transfer.from_address,
+                    amount: formattedAmount,
+                    symbol: transfer.symbol || 'Unknown',
+                    transactionHash: transfer.transaction_id,
+                    blockNumber: transfer.block_number,
+                    chainId: this.TRON_CHAIN_ID
+                });
+                return; // Skip notification for unknown tokens
+            }
+
+            const tokenSymbol = tokenInfoFromDb.symbol;
+            const tokenDecimals = tokenInfoFromDb.decimals;
+            const tokenPrice = tokenInfoFromDb.price || 0;
 
             const rawAmount = transfer.value; // String as per TronTransferEvent
             const numericAmount = BigInt(rawAmount);
