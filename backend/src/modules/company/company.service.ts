@@ -22,6 +22,9 @@ const buildSlackConfigPayload = (configInput: SlackConfigurationInput): any => {
     if (configInput.slackTeamId !== undefined) {
         payload.slackTeamId = configInput.slackTeamId;
     }
+    if (configInput.slackTeamName !== undefined) {
+        payload.slackTeamName = configInput.slackTeamName;
+    }
     return payload;
 };
 

@@ -10,6 +10,7 @@ export interface SlackConfigurationInput {
     alertThreshold?: number | string | Decimal;
     isEnabled?: boolean;
     slackTeamId?: string | null;
+    slackTeamName?: string | null;
     // organizationDetails could be added if you plan to store Slack Workspace info
 }
 

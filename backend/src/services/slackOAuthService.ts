@@ -224,6 +224,7 @@ export async function saveOrUpdateSlackInstallation(
                 data: {
                     accessToken: oauthData.access_token,
                     botUserId: oauthData.bot_user_id,
+                    slackTeamId: oauthData.team.id,
                     slackTeamName: oauthData.team.name,
                     slackAppId: oauthData.app_id,
                     scopes: oauthData.scope,
