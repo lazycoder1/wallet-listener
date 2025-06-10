@@ -231,30 +231,41 @@ export class TronConnectionManager {
     /**
      * Start polling for Tron transactions
      */
-    public async start(): Promise<void> { // Added async
-        logger.info('Starting Tron transaction polling');
+    public async start(): Promise<void> {
+        logger.info('Starting unified Tron block-based monitoring');
 
         if (this.addressManager.getTrackedAddressCount() === 0) {
-            logger.warn('No wallet addresses being tracked. Tron polling will start but TRC20 filtering might be empty.');
+            logger.warn('No wallet addresses being tracked. Tron polling will start but filtering might be empty.');
         }
 
         // Only initialize if not already done
         if (!this.isInitialized) {
-            await this.initializeLastProcessedBlockNumber(); // Make sure this is awaited if it becomes async
+            await this.initializeLastProcessedBlockNumber();
         }
 
-        // Start polling for native TRX transfers
+        // Start unified block polling for BOTH native TRX and TRC20 transfers
         this.startBlockPolling();
 
-        // Start polling for TRC20 token transfers (per token)
-        await this.startAllTokenContractPolling(); // Changed from startTokenPolling
+        // Stop any legacy token polling intervals
+        this.stopLegacyTokenPolling();
 
-        this.isInitialized = true; // Set flag after successful start
-        logger.info('Tron transaction polling started/updated');
+        this.isInitialized = true;
+        logger.info('Unified Tron block-based monitoring started - tracking both TRX and TRC20 transfers');
     }
 
     /**
-     * Start polling for new blocks to detect native TRX transfers
+     * Stop legacy per-token polling intervals (no longer needed with block-based approach)
+     */
+    private stopLegacyTokenPolling(): void {
+        for (const [contractAddress, interval] of this.perTokenPollingIntervals) {
+            clearInterval(interval);
+            logger.debug(`Stopped legacy polling for token contract: ${contractAddress}`);
+        }
+        this.perTokenPollingIntervals.clear();
+    }
+
+    /**
+     * Start unified block polling to detect both native TRX and TRC20 transfers
      */
     private startBlockPolling(): void {
         if (this.blockPollingInterval) {
@@ -276,13 +287,14 @@ export class TronConnectionManager {
             } finally {
                 this.isPolling = false;
             }
-        }, appConfig.networks.tron.tronNativePollingIntervalMs || 3000); // Use config value
+        }, appConfig.networks.tron.tronNativePollingIntervalMs || 3000);
 
-        logger.info(`Block polling started with interval of ${appConfig.networks.tron.tronNativePollingIntervalMs || 3000}ms`);
+        logger.info(`Unified block polling started with interval of ${appConfig.networks.tron.tronNativePollingIntervalMs || 3000}ms - monitoring TRX + TRC20`);
     }
 
     /**
-     * Check for new native TRX transactions by polling new blocks.
+     * Check for new transactions by polling new blocks - UNIFIED APPROACH
+     * This method now handles BOTH native TRX and TRC20 transfers in a single block scan
      */
     private async checkForNewBlocks(): Promise<void> {
         let currentBlockNumber = 0;
@@ -316,65 +328,240 @@ export class TronConnectionManager {
 
         logger.info(`New blocks detected. Current: ${currentBlockNumber}, Last Processed: ${this.lastProcessedBlockNumber}. Processing blocks from ${this.lastProcessedBlockNumber + 1} to ${endBlock} (up to ${blocksToProcessThisCycle} blocks).`);
 
+        // Get tracked addresses and tokens
         const trackedAddresses = this.addressManager.getTrackedAddresses();
-        logger.info(`[Tron Debug CheckForNewBlocks] Using ${trackedAddresses.length} tracked addresses (original case) from AddressManager for this cycle: ${JSON.stringify(trackedAddresses)}`);
+        const validTronAddresses = trackedAddresses
+            .map(addr => this.normalizeAndValidateTronAddress(addr))
+            .filter((addr): addr is string => addr !== null);
+        const trackedAddressesSet = new Set(validTronAddresses.map(addr => addr.toLowerCase()));
 
-        if (trackedAddresses.length === 0) {
-            logger.warn('[Tron Debug CheckForNewBlocks] No addresses provided by AddressManager for this cycle. Skipping block transaction checks.');
+        // Get tracked TRC20 tokens
+        const tronTokens = await this.tokenService.getTronTokens();
+        const trackedTokenContracts = new Map<string, any>();
+        for (const token of tronTokens) {
+            const tronAddress = token.addresses.find((addr: any) => addr.chain === 'tron');
+            if (tronAddress) {
+                trackedTokenContracts.set(tronAddress.address.toLowerCase(), token);
+            }
+        }
+
+        logger.info(`[Tron Block Scanner] Processing ${blocksToProcessThisCycle} blocks. Tracking ${trackedAddressesSet.size} addresses and ${trackedTokenContracts.size} token contracts.`);
+
+        if (trackedAddressesSet.size === 0) {
+            logger.warn('[Tron Block Scanner] No valid addresses to track. Skipping block processing.');
             this.lastProcessedBlockNumber = endBlock;
             return;
         }
 
         for (let blockNum = this.lastProcessedBlockNumber + 1; blockNum <= endBlock; blockNum++) {
             try {
-                const blockResponse = await axios.post(`${appConfig.networks.tron.wsUrl}/wallet/getblockbynum`,
-                    { num: blockNum },
-                    {
-                        headers: appConfig.networks.tron.apiKey ? { 'TRON-PRO-API-KEY': appConfig.networks.tron.apiKey } : undefined,
-                        timeout: 10000
-                    }
-                );
-                const block = blockResponse.data as TronBlock;
-
-                if (!block || !block.transactions) {
-                    logger.warn(`Block ${blockNum} has no transactions or block data is malformed.`);
-                    continue;
-                }
-                logger.info(`Processing block ${blockNum} with ${block.transactions.length} transaction(s).`);
-
-                for (const tx of block.transactions) {
-                    if (tx.ret && tx.ret[0] && tx.ret[0].contractRet === 'SUCCESS' && tx.raw_data && tx.raw_data.contract && tx.raw_data.contract[0]) {
-                        const contract = tx.raw_data.contract[0];
-                        if (contract.type === 'TransferContract' && contract.parameter && contract.parameter.value && contract.parameter.value.to_address) {
-                            const toAddressHex = contract.parameter.value.to_address;
-                            try {
-                                const toAddressBase58Canonical = this.tronWebInstance.address.fromHex(toAddressHex);
-
-                                if (trackedAddresses.includes(toAddressBase58Canonical)) {
-                                    logger.info(`[TRON NATIVE MATCH] Block: ${blockNum}, TXID: ${tx.txID}, To: ${toAddressBase58Canonical} (matches tracked ${toAddressBase58Canonical}), Amount: ${contract.parameter.value.amount / 1_000_000} TRX`);
-                                    const tronTx: TronTransaction = {
-                                        txID: tx.txID,
-                                        blockNumber: blockNum,
-                                        blockTimeStamp: tx.raw_data.timestamp,
-                                        contractType: 1,
-                                        ownerAddress: this.tronWebInstance.address.fromHex(contract.parameter.value.owner_address),
-                                        toAddress: toAddressBase58Canonical,
-                                        amount: contract.parameter.value.amount,
-                                        contractRet: 'SUCCESS'
-                                    };
-                                    await this.processNativeTransfer(tronTx);
-                                }
-                            } catch (hexError: any) {
-                                logger.warn(`[Tron CheckForNewBlocks] Error converting hex address ${toAddressHex} for TXID ${tx.txID} in block ${blockNum}: ${hexError.message}`);
-                            }
-                        }
-                    }
-                }
+                await this.processBlock(blockNum, trackedAddressesSet, trackedTokenContracts);
             } catch (error: any) {
                 logger.error(`Error processing block ${blockNum}:`, error.message);
             }
         }
         this.lastProcessedBlockNumber = endBlock;
+    }
+
+    /**
+     * Process a single block for both native TRX and TRC20 transfers
+     */
+    private async processBlock(
+        blockNum: number,
+        trackedAddressesSet: Set<string>,
+        trackedTokenContracts: Map<string, any>
+    ): Promise<void> {
+        const blockResponse = await axios.post(`${appConfig.networks.tron.wsUrl}/wallet/getblockbynum`,
+            { num: blockNum },
+            {
+                headers: appConfig.networks.tron.apiKey ? { 'TRON-PRO-API-KEY': appConfig.networks.tron.apiKey } : undefined,
+                timeout: 10000
+            }
+        );
+        const block = blockResponse.data as TronBlock;
+
+        if (!block || !block.transactions) {
+            logger.warn(`Block ${blockNum} has no transactions or block data is malformed.`);
+            return;
+        }
+
+        logger.debug(`Processing block ${blockNum} with ${block.transactions.length} transaction(s).`);
+
+        let nativeTransfers = 0;
+        let trc20Transfers = 0;
+
+        for (const tx of block.transactions) {
+            if (!tx.ret || !tx.ret[0] || tx.ret[0].contractRet !== 'SUCCESS' || !tx.raw_data || !tx.raw_data.contract) {
+                continue;
+            }
+
+            for (const contract of tx.raw_data.contract) {
+                try {
+                    // Process Native TRX Transfers
+                    if (contract.type === 'TransferContract' && contract.parameter && contract.parameter.value) {
+                        const transferred = await this.processNativeTransferFromBlock(
+                            tx, contract, blockNum, trackedAddressesSet
+                        );
+                        if (transferred) nativeTransfers++;
+                    }
+
+                    // Process TRC20 Transfers (NEW BLOCK-BASED APPROACH)
+                    else if (contract.type === 'TriggerSmartContract' && contract.parameter && contract.parameter.value) {
+                        const transferred = await this.processTRC20TransferFromBlock(
+                            tx, contract, blockNum, trackedAddressesSet, trackedTokenContracts
+                        );
+                        if (transferred) trc20Transfers++;
+                    }
+                } catch (error: any) {
+                    logger.warn(`Error processing contract in block ${blockNum}, tx ${tx.txID}:`, error.message);
+                }
+            }
+        }
+
+        if (nativeTransfers > 0 || trc20Transfers > 0) {
+            logger.info(`Block ${blockNum}: Found ${nativeTransfers} native TRX transfers and ${trc20Transfers} TRC20 transfers`);
+        }
+    }
+
+    /**
+     * Process native TRX transfer from block data
+     */
+    private async processNativeTransferFromBlock(
+        tx: TronTransactionFromBlock,
+        contract: any,
+        blockNum: number,
+        trackedAddressesSet: Set<string>
+    ): Promise<boolean> {
+        if (!contract.parameter.value.to_address) return false;
+
+        try {
+            const toAddressHex = contract.parameter.value.to_address;
+            const toAddressBase58 = this.tronWebInstance.address.fromHex(toAddressHex);
+
+            if (trackedAddressesSet.has(toAddressBase58.toLowerCase())) {
+                logger.info(`[TRON NATIVE] Block: ${blockNum}, TX: ${tx.txID}, To: ${toAddressBase58}, Amount: ${contract.parameter.value.amount / 1_000_000} TRX`);
+
+                const tronTx: TronTransaction = {
+                    txID: tx.txID,
+                    blockNumber: blockNum,
+                    blockTimeStamp: tx.raw_data.timestamp,
+                    contractType: 1,
+                    ownerAddress: this.tronWebInstance.address.fromHex(contract.parameter.value.owner_address),
+                    toAddress: toAddressBase58,
+                    amount: contract.parameter.value.amount,
+                    contractRet: 'SUCCESS'
+                };
+                await this.processNativeTransfer(tronTx);
+                return true;
+            }
+        } catch (error: any) {
+            logger.warn(`Error processing native transfer in block ${blockNum}, tx ${tx.txID}:`, error.message);
+        }
+        return false;
+    }
+
+    /**
+     * Process TRC20 transfer from block data - NEW SCALABLE APPROACH
+     */
+    private async processTRC20TransferFromBlock(
+        tx: TronTransactionFromBlock,
+        contract: any,
+        blockNum: number,
+        trackedAddressesSet: Set<string>,
+        trackedTokenContracts: Map<string, any>
+    ): Promise<boolean> {
+        try {
+            const contractData = contract.parameter.value;
+            const contractAddress = contractData.contract_address;
+
+            if (!contractAddress) return false;
+
+            // Convert contract address to base58
+            const contractAddressBase58 = this.tronWebInstance.address.fromHex(contractAddress);
+
+            // Check if this is a tracked token contract
+            if (!trackedTokenContracts.has(contractAddressBase58.toLowerCase())) {
+                return false;
+            }
+
+            // Decode the transfer data
+            const transferData = this.decodeTRC20Transfer(contractData.data);
+            if (!transferData) return false;
+
+            // Get addresses
+            const fromAddress = this.tronWebInstance.address.fromHex(contractData.owner_address);
+            const toAddress = transferData.to; // Already converted to base58 in decodeTRC20Transfer
+
+            // Check if transfer involves tracked addresses
+            const isRelevant = trackedAddressesSet.has(fromAddress.toLowerCase()) ||
+                trackedAddressesSet.has(toAddress.toLowerCase());
+
+            if (!isRelevant) return false;
+
+            // Get token info
+            const tokenInfo = trackedTokenContracts.get(contractAddressBase58.toLowerCase());
+
+            logger.info(`[TRON TRC20] Block: ${blockNum}, TX: ${tx.txID}, From: ${fromAddress}, To: ${toAddress}, Token: ${tokenInfo.symbol}, Amount: ${transferData.amount}`);
+
+            // Create TronTransferEvent compatible object
+            const transferEvent: TronTransferEvent = {
+                transaction_id: tx.txID,
+                block_timestamp: tx.raw_data.timestamp,
+                block_number: blockNum,
+                contract_address: contractAddressBase58,
+                from_address: fromAddress,
+                to_address: toAddress,
+                value: transferData.amount,
+                decimals: tokenInfo.decimals,
+                symbol: tokenInfo.symbol,
+                name: tokenInfo.name,
+                event_name: 'Transfer'
+            };
+
+            // Process the transfer
+            await this.processTokenTransfer(transferEvent, toAddress);
+            return true;
+
+        } catch (error: any) {
+            logger.warn(`Error processing TRC20 transfer in block ${blockNum}, tx ${tx.txID}:`, error.message);
+            return false;
+        }
+    }
+
+    /**
+     * Decode TRC20 transfer function call data
+     * Transfer function signature: transfer(address _to, uint256 _value)
+     * Method ID: a9059cbb
+     */
+    private decodeTRC20Transfer(data: string): { from: string; to: string; amount: string } | null {
+        try {
+            if (!data || data.length < 8) return null;
+
+            // Check if this is a transfer method call (a9059cbb)
+            const methodId = data.slice(0, 8);
+            if (methodId !== 'a9059cbb') return null;
+
+            // Extract parameters (each parameter is 32 bytes / 64 hex chars)
+            const toAddressHex = data.slice(8, 72);   // First parameter: to address
+            const amount = data.slice(72, 136);       // Second parameter: amount
+
+            // Convert address from padded hex to proper format
+            // Remove leading zeros and add '41' prefix for TRON addresses
+            const addressWithoutPadding = toAddressHex.slice(-40); // Last 40 hex chars (20 bytes)
+            const tronAddress = '41' + addressWithoutPadding;      // Add TRON address prefix
+
+            // Convert to base58 TRON address format
+            const toAddress = this.tronWebInstance.address.fromHex(tronAddress);
+
+            return {
+                from: '', // Will be filled from transaction sender (owner_address)
+                to: toAddress,
+                amount: BigInt('0x' + amount).toString()
+            };
+        } catch (error) {
+            logger.warn(`Error decoding TRC20 transfer data: ${data}`, error);
+            return null;
+        }
     }
 
     /**
@@ -496,72 +683,37 @@ export class TronConnectionManager {
      * Stop all polling
      */
     public stop(): void {
-        logger.info('Stopping Tron transaction polling');
+        logger.info('Stopping unified Tron block-based monitoring');
 
         if (this.blockPollingInterval) {
             clearInterval(this.blockPollingInterval);
             this.blockPollingInterval = null;
         }
 
-        this.perTokenPollingIntervals.forEach(interval => clearInterval(interval));
-        this.perTokenPollingIntervals.clear();
+        // Stop any legacy token polling intervals
+        this.stopLegacyTokenPolling();
 
-        // if (this.tokenPollingInterval) { // Old logic
-        //     clearInterval(this.tokenPollingInterval);
-        //     this.tokenPollingInterval = null;
-        // }
-
-        logger.info('Tron transaction polling stopped');
+        logger.info('Unified Tron block-based monitoring stopped');
     }
 
-    // --- TRC20 Token Transfer Monitoring (New Strategy: Poll per Token Contract) ---
+    // --- DEPRECATED METHODS (kept for reference during transition) ---
+    // The following methods are no longer used with the unified block-based approach
+    // but are kept temporarily for reference during the transition period.
 
+    /**
+     * DEPRECATED: Legacy per-token contract polling approach
+     * Replaced by unified block scanning in checkForNewBlocks()
+     */
     private async startAllTokenContractPolling(): Promise<void> {
-        const trackedTronTokens = await this.tokenService.getTronTokens();
-
-        if (!trackedTronTokens || trackedTronTokens.length === 0) {
-            logger.warn('[Tron] No TRC20 tokens configured for tracking.');
-            return;
-        }
-
-        logger.info(`[Tron] Starting polling for up to ${trackedTronTokens.length} TRC20 token contracts.`);
-
-        for (const token of trackedTronTokens) {
-            // Skip native TRX, as it's not a TRC20 token and is handled by block polling
-            if (token.symbol.toUpperCase() === 'TRX') {
-                logger.info(`[Tron] Skipping TRC20 polling for native TRX symbol.`);
-                continue;
-            }
-
-            const tronAddressData = token.addresses.find(addrData => addrData.chain.toLowerCase() === 'tron');
-
-            if (tronAddressData && tronAddressData.address) {
-                const tronContractAddress = tronAddressData.address;
-                if (!this.tokenLastProcessedTimestamps.has(tronContractAddress)) {
-                    // Initialize timestamp if not already set (e.g. 5 mins ago)
-                    this.tokenLastProcessedTimestamps.set(tronContractAddress, Date.now() - 5 * 60 * 1000);
-                }
-                this.startIndividualTokenPolling(tronContractAddress, token.symbol, token.decimals);
-            } else {
-                logger.warn(`[Tron] Token ${token.symbol} is missing a Tron contract address or the address format is unexpected. Skipping polling for this token.`);
-            }
-        }
+        logger.warn('[Tron] startAllTokenContractPolling is deprecated. TRC20 transfers are now handled in unified block scanning.');
     }
 
+    /**
+     * DEPRECATED: Legacy individual token polling
+     * Replaced by unified block scanning in checkForNewBlocks()
+     */
     private startIndividualTokenPolling(contractAddress: string, symbol: string, decimals: number): void {
-        const pollFn = async () => {
-            try {
-                await this.fetchAndProcessTransfersForToken(contractAddress, symbol, decimals);
-            } catch (error) {
-                logger.error(`[Tron] Error in polling loop for TRC20 token ${symbol} (${contractAddress}):`, error);
-            }
-        };
-
-        // Execute immediately once, then set up interval
-        pollFn();
-        const interval = setInterval(pollFn, this.TOKEN_POLLING_INTERVAL_MS); // Use defined interval
-        this.perTokenPollingIntervals.set(contractAddress, interval);
-        logger.info(`[Tron] Started polling for TRC20 token: ${symbol} (${contractAddress}) every ${this.TOKEN_POLLING_INTERVAL_MS}ms`);
+        logger.warn(`[Tron] startIndividualTokenPolling is deprecated for ${symbol}. TRC20 transfers are now handled in unified block scanning.`);
     }
 
     private async fetchAndProcessTransfersForToken(contractAddress: string, symbol: string, decimals: number): Promise<void> {
@@ -657,41 +809,19 @@ export class TronConnectionManager {
     }
 
     /**
-     * Check for TRC20 token transfers - DEPRECATED in favor of startAllTokenContractPolling
+     * DEPRECATED: Check for TRC20 token transfers using per-address approach  
+     * Replaced by unified block scanning in checkForNewBlocks()
      */
     private async checkForTokenTransfers(): Promise<void> {
-        logger.warn('[Tron] checkForTokenTransfers is deprecated. Polling is now per token contract.');
-        // Old logic that iterated through all wallet addresses:
-        /* 
-        const trackedAddresses = this.addressManager.getTrackedAddresses()
-            .map(addr => this.normalizeAndValidateTronAddress(addr))
-            .filter(addr => addr !== null);
-
-        if (trackedAddresses.length === 0) {
-            return;
-        }
-
-        const tronTokens = await this.tokenService.getTronTokens();
-
-        const batchSize = 5;
-        for (let i = 0; i < trackedAddresses.length; i += batchSize) {
-            const addressBatch = trackedAddresses.slice(i, i + batchSize);
-            for (const address of addressBatch) {
-                await this.processAddressTokenTransfers(address, tronTokens); // This was the W-factor call
-            }
-            if (i + batchSize < trackedAddresses.length) {
-                await new Promise(resolve => setTimeout(resolve, 200));
-            }
-        }
-        */
+        logger.warn('[Tron] checkForTokenTransfers is deprecated. TRC20 transfers are now handled in unified block scanning.');
     }
 
     /**
-     * Process token transfers for a specific address - DEPRECATED
+     * DEPRECATED: Process token transfers for a specific address
+     * Replaced by unified block scanning in checkForNewBlocks()
      */
     private async processAddressTokenTransfers(address: string, tronTokens: any[]): Promise<void> {
-        logger.warn('[Tron] processAddressTokenTransfers is deprecated. Polling is now per token contract.');
-        // Old logic making API calls per wallet address
+        logger.warn('[Tron] processAddressTokenTransfers is deprecated. TRC20 transfers are now handled in unified block scanning.');
     }
 
     /**

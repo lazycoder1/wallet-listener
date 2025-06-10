@@ -380,8 +380,22 @@ export class EvmConnectionManager {
         if (newEventHandler !== undefined) {
             this.eventHandler = newEventHandler;
         }
-        this.unsubscribeCallbacksMap.forEach(unsubs => unsubs.forEach(unsub => unsub()));
+
+        // Gracefully unsubscribe from all existing watchers
+        this.unsubscribeCallbacksMap.forEach(unsubs => {
+            unsubs.forEach(unsub => {
+                try {
+                    unsub();
+                } catch (error) {
+                    // This can happen if the filter has already expired on the RPC node.
+                    // It's safe to ignore as we are about to create new filters anyway.
+                    logger.warn('Error during unsubscribe, likely due to expired filter. Ignoring:', error);
+                }
+            });
+        });
+
         this.unsubscribeCallbacksMap.clear();
+
         if (!this.eventHandler) {
             logger.warn("Event handler not set for EvmConnectionManager during update. Events might be missed.");
         }
@@ -412,7 +426,15 @@ export class EvmConnectionManager {
         logger.info("Stopping EVM polling connections...");
         this.unsubscribeCallbacksMap.forEach((unsubs, chainId) => {
             logger.info(`Unsubscribing from EVM chain ID: ${chainId}`);
-            unsubs.forEach(unsub => unsub());
+            unsubs.forEach(unsub => {
+                try {
+                    unsub();
+                } catch (error) {
+                    // This can happen if the filter has already expired on the RPC node.
+                    // It's safe to ignore as we are shutting down.
+                    logger.warn(`Error during unsubscribe for chain ${chainId}, likely due to expired filter. Ignoring:`, error);
+                }
+            });
         });
         this.unsubscribeCallbacksMap.clear();
         this.publicClients.forEach((client, chainId) => {
