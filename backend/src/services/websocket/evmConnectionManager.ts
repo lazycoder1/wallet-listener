@@ -382,14 +382,26 @@ export class EvmConnectionManager {
         }
 
         // Gracefully unsubscribe from all existing watchers
-        this.unsubscribeCallbacksMap.forEach(unsubs => {
-            unsubs.forEach(unsub => {
+        this.unsubscribeCallbacksMap.forEach((unsubs, chainId) => {
+            logger.debug(`Unsubscribing from ${unsubs.length} watchers for chain ${chainId}`);
+            unsubs.forEach((unsub, index) => {
                 try {
                     unsub();
-                } catch (error) {
+                } catch (error: any) {
                     // This can happen if the filter has already expired on the RPC node.
+                    // Common errors: "filter not found", "eth_uninstallFilter" failures
                     // It's safe to ignore as we are about to create new filters anyway.
-                    logger.warn('Error during unsubscribe, likely due to expired filter. Ignoring:', error);
+                    if (error?.message?.includes('filter not found') ||
+                        error?.message?.includes('eth_uninstallFilter') ||
+                        error?.code === 32000) {
+                        logger.debug(`Filter ${index} for chain ${chainId} already expired/removed. This is normal.`);
+                    } else {
+                        logger.warn(`Unexpected error during unsubscribe for chain ${chainId}, filter ${index}:`, {
+                            message: error?.message,
+                            code: error?.code,
+                            details: error?.details
+                        });
+                    }
                 }
             });
         });
@@ -425,14 +437,25 @@ export class EvmConnectionManager {
     public stop() {
         logger.info("Stopping EVM polling connections...");
         this.unsubscribeCallbacksMap.forEach((unsubs, chainId) => {
-            logger.info(`Unsubscribing from EVM chain ID: ${chainId}`);
-            unsubs.forEach(unsub => {
+            logger.info(`Unsubscribing from ${unsubs.length} watchers for EVM chain ID: ${chainId}`);
+            unsubs.forEach((unsub, index) => {
                 try {
                     unsub();
-                } catch (error) {
+                } catch (error: any) {
                     // This can happen if the filter has already expired on the RPC node.
+                    // Common errors: "filter not found", "eth_uninstallFilter" failures
                     // It's safe to ignore as we are shutting down.
-                    logger.warn(`Error during unsubscribe for chain ${chainId}, likely due to expired filter. Ignoring:`, error);
+                    if (error?.message?.includes('filter not found') ||
+                        error?.message?.includes('eth_uninstallFilter') ||
+                        error?.code === 32000) {
+                        logger.debug(`Filter ${index} for chain ${chainId} already expired/removed during shutdown. This is normal.`);
+                    } else {
+                        logger.warn(`Unexpected error during shutdown unsubscribe for chain ${chainId}, filter ${index}:`, {
+                            message: error?.message,
+                            code: error?.code,
+                            details: error?.details
+                        });
+                    }
                 }
             });
         });
