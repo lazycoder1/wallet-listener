@@ -17,7 +17,7 @@ services:
         # For PostgreSQL/MySQL, the DB would typically be a separate service.
         networks:
             - wallet_watcher_network
-        # restart: unless-stopped # Optional: to automatically restart the container
+        restart: unless-stopped # Automatically restart the container unless explicitly stopped
 
     frontend:
         build:
