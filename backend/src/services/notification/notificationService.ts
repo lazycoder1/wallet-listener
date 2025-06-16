@@ -106,6 +106,13 @@ export class NotificationService {
             totalBalanceMessage = "Could not retrieve current balance.";
         }
 
+        // Check if the deposit's USD value is above the threshold
+        const depositThreshold = 100; // Example threshold in USD
+        if (usdValue < depositThreshold) {
+            logger.info(`Deposit value $${usdValue.toFixed(2)} is below threshold $${depositThreshold.toFixed(2)}. Notification not sent.`);
+            return;
+        }
+
         const summaryMsg = `Wallet ${recipientAddress} has a deposit of ${formattedValue} ${tokenSymbol} worth $${usdValue.toFixed(2)}. ${totalBalanceMessage}${topTokensMessage}`;
 
         const {
