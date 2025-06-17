@@ -86,7 +86,7 @@ export class SlackNotifierChannel implements NotificationChannel {
             const slackClient = new WebClient(slackConfig.accessToken);
 
             const usdValue = depositData.usdValue || 0;
-            const alertThresholdNumber = slackConfig.alertThreshold ? slackConfig.alertThreshold.toNumber() : 0;
+            const alertThresholdNumber = companyAddress.threshold ? Number(companyAddress.threshold) : 0;
 
             if (usdValue < alertThresholdNumber) {
                 logger.info(`[SlackNotifierChannel] Deposit value $${usdValue.toFixed(2)} for ${depositData.recipientAddress} is below alert threshold $${alertThresholdNumber.toFixed(2)}. Notification not sent.`);
