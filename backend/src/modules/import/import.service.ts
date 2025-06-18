@@ -97,21 +97,27 @@ export class ImportService {
 
             for (const procAddr of processedAddressesInfo) {
                 if (procAddr.isValid) {
-                    // Use the threshold from the individual address in the CSV, if provided
+                    // Use the threshold, accountName, and accountManager from the individual address in the CSV, if provided
                     const addressThreshold = procAddr.originalAddress.threshold;
+                    const accountName = procAddr.originalAddress.accountName;
+                    const accountManager = procAddr.originalAddress.accountManager;
 
                     await tx.companyAddress.upsert({
                         where: { uq_company_address: { companyId: companyId, addressId: procAddr.addressId } },
                         update: {
                             isActive: true,
                             updatedAt: new Date(),
-                            threshold: addressThreshold ?? 0 // Use 0 if no threshold provided
+                            threshold: addressThreshold ?? 0, // Use 0 if no threshold provided
+                            accountName: accountName ?? null,
+                            accountManager: accountManager ?? null
                         },
                         create: {
                             company: { connect: { id: companyId } },
                             address: { connect: { id: procAddr.addressId } },
                             isActive: true,
-                            threshold: addressThreshold ?? 0 // Use 0 if no threshold provided
+                            threshold: addressThreshold ?? 0, // Use 0 if no threshold provided
+                            accountName: accountName ?? null,
+                            accountManager: accountManager ?? null
                         },
                     });
                 }

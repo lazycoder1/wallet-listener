@@ -48,6 +48,8 @@ model CompanyAddress {
   lastBalance     Decimal?  @map("last_balance")
   lastCheckedAt   DateTime? @map("last_checked_at")
   threshold       Decimal   @default(0) @map("threshold")
+  accountName     String?   @map("account_name")
+  accountManager  String?   @map("account_manager")
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
   company         Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)

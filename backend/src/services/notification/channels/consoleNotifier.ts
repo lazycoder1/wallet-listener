@@ -25,6 +25,17 @@ export class ConsoleNotifier implements NotificationChannel {
             )}`
             : '';
 
-        return `[${timestamp}] ${message.title}\n${message.message}${dataStr}`;
+        // Optionally, highlight accountName and accountManager if present
+        let extraInfo = '';
+        if (message.data) {
+            if (message.data.accountName) {
+                extraInfo += `\nAccount Name: ${message.data.accountName}`;
+            }
+            if (message.data.accountManager) {
+                extraInfo += `\nAccount Manager: ${message.data.accountManager}`;
+            }
+        }
+
+        return `[${timestamp}] ${message.title}\n${message.message}${extraInfo}${dataStr}`;
     }
 } 

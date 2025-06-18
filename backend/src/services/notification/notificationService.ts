@@ -29,6 +29,8 @@ interface DepositNotificationData {
     chainType: 'EVM' | 'TRON';
     blockNumber?: bigint | number;
     summaryMessage: string;
+    accountName?: string;
+    accountManager?: string;
     [key: string]: any;
 }
 
@@ -115,6 +117,27 @@ export class NotificationService {
             ...otherContextData
         } = depositContext;
 
+        // Fetch accountName and accountManager from the companyAddress table
+        let accountName: string | undefined = undefined;
+        let accountManager: string | undefined = undefined;
+        try {
+            const prisma = require('../../prisma').default;
+            const companyAddress = await prisma.companyAddress.findFirst({
+                where: {
+                    address: {
+                        address: recipientAddress,
+                        chainType: depositContext.chainType,
+                    },
+                },
+            });
+            if (companyAddress) {
+                accountName = companyAddress.accountName;
+                accountManager = companyAddress.accountManager;
+            }
+        } catch (err) {
+            logger.error('Error fetching accountName/accountManager for notification:', err);
+        }
+
         const notificationData: DepositNotificationData = {
             ...otherContextData,
             recipientAddress,
@@ -131,6 +154,8 @@ export class NotificationService {
             chainType: ctxChainType,
             blockNumber,
             summaryMessage: summaryMsg,
+            accountName,
+            accountManager,
         };
 
         const message: NotificationMessage = {

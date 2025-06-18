@@ -20,6 +20,7 @@ interface SlackDepositMessageData {
     chainType: 'EVM' | 'TRON';
     blockNumber?: bigint | number;
     summaryMessage?: string;
+    totalBalance?: string;
     [key: string]: any;
 }
 
@@ -96,22 +97,25 @@ export class SlackNotifierChannel implements NotificationChannel {
             const explorerLink = getExplorerLink(depositData.chainName, depositData.transactionHash);
             const senderDisplay = depositData.senderAddress ? ` from ${depositData.senderAddress}` : '';
 
+            // Fetch accountName and accountManager from companyAddress
+            const accountName = companyAddress.accountName || 'N/A';
+            const accountManager = companyAddress.accountManager || 'N/A';
+            const totalBalance = depositData.totalBalance || 'N/A'; // If you want to show total balance, ensure it's in depositData
+
             const messageBlocks = [
                 {
                     type: "section",
                     text: {
                         type: "mrkdwn",
-                        text: `*${title}*\n${depositData.summaryMessage}`
+                        text:
+                            `*New Deposit Detected*
+*Wallet:* ${depositData.recipientAddress}
+*Account Name:* ${accountName}
+*Account Manager:* ${accountManager}
+*Currency:* ${depositData.tokenSymbol}
+*Amount:* ${depositData.formattedValue} ${depositData.tokenSymbol} ($${usdValue.toFixed(2)})
+*Total Balance:* ${totalBalance}`
                     }
-                },
-                {
-                    type: "context",
-                    elements: [
-                        {
-                            type: "mrkdwn",
-                            text: `*Chain:* ${depositData.chainName} | *Token:* ${depositData.tokenSymbol} | *Amount:* ${depositData.formattedValue} ($${usdValue.toFixed(2)})`
-                        }
-                    ]
                 },
                 {
                     type: "actions",
