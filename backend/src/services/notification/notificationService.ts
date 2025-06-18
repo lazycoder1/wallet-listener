@@ -31,6 +31,7 @@ interface DepositNotificationData {
     summaryMessage: string;
     accountName?: string;
     accountManager?: string;
+    totalBalance: string | undefined;
     [key: string]: any;
 }
 
@@ -91,21 +92,25 @@ export class NotificationService {
     ): Promise<void> {
         let totalBalanceMessage = "";
         let topTokensMessage = "";
+        let totalBalanceValue: string | undefined = undefined;
 
         try {
             if (depositContext.chainType === 'TRON') {
                 const { totalUsdBalance, topTokens } = await this.balanceService.fetchTronScanTokenBalances(recipientAddress);
                 totalBalanceMessage = `Wallet total Tron balance is $${totalUsdBalance.toFixed(2)}.`;
+                totalBalanceValue = `$${totalUsdBalance.toFixed(2)}`;
                 if (topTokens.length > 0) {
                     topTokensMessage = " Top tokens: " + topTokens.map(t => `${parseFloat(t.balance) / Math.pow(10, t.tokenDecimal)} ${t.tokenAbbr || t.tokenName} ($${t.assetInUsd.toFixed(2)})`).join(', ');
                 }
             } else { // EVM or other types
                 const totalBalance = await this.balanceService.getTotalBalanceAlchemy(recipientAddress); // New Alchemy-powered balance logic
                 totalBalanceMessage = `Wallet total EVM balance is $${totalBalance.toFixed(2)}.`;
+                totalBalanceValue = `$${totalBalance.toFixed(2)}`;
             }
         } catch (balanceError) {
             logger.error({ msg: "Error fetching balance in notifyDeposit", address: recipientAddress, error: balanceError });
             totalBalanceMessage = "Could not retrieve current balance.";
+            totalBalanceValue = 'N/A';
         }
 
         const summaryMsg = `Wallet ${recipientAddress} has a deposit of ${formattedValue} ${tokenSymbol} worth $${usdValue.toFixed(2)}. ${totalBalanceMessage}${topTokensMessage}`;
@@ -156,6 +161,7 @@ export class NotificationService {
             summaryMessage: summaryMsg,
             accountName,
             accountManager,
+            totalBalance: totalBalanceValue,
         };
 
         const message: NotificationMessage = {
