@@ -1,4 +1,4 @@
-import { PrismaClient, Prisma } from '@prisma/client';
+import { prisma } from '../../prisma';
 import logger from '../../config/logger';
 import axios from 'axios';
 import { config as appConfig } from '../../config';
@@ -48,7 +48,6 @@ interface AlchemyPriceResponse {
 
 export class TokenService {
     private static instance: TokenService;
-    private prisma: PrismaClient;
     private refreshInterval: NodeJS.Timeout | null = null;
     private readonly REFRESH_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
     private readonly ALCHEMY_API_URL = 'https://api.g.alchemy.com/prices/v1';
@@ -59,7 +58,7 @@ export class TokenService {
     private consecutiveFailures: number = 0;
 
     private constructor() {
-        this.prisma = new PrismaClient();
+        // No longer need to create a new PrismaClient instance
     }
 
     public static getInstance(): TokenService {
@@ -203,7 +202,7 @@ export class TokenService {
 
     public async addToken(tokenData: TokenMetadata): Promise<void> {
         try {
-            await this.prisma.$transaction(async (tx: any) => {
+            await prisma.$transaction(async (tx: any) => {
                 // Create or update the token
                 const token = await tx.token.upsert({
                     where: { symbol: tokenData.symbol },
@@ -264,7 +263,7 @@ export class TokenService {
     public async getToken(symbol: string, chainName?: string): Promise<TokenWithAddresses | null> {
         if (chainName) {
             const normalizedChainName = chainName.toLowerCase();
-            const tokenOnChain = await this.prisma.token.findFirst({
+            const tokenOnChain = await prisma.token.findFirst({
                 where: {
                     symbol: symbol,
                     addresses: {
@@ -286,7 +285,7 @@ export class TokenService {
                 return tokenOnChain as TokenWithAddresses | null;
             }
         }
-        const token = await this.prisma.token.findUnique({
+        const token = await prisma.token.findUnique({
             where: { symbol },
             include: {
                 addresses: {
@@ -301,7 +300,7 @@ export class TokenService {
     }
 
     public async getActiveTokens(): Promise<TokenWithAddresses[]> {
-        const tokens = await this.prisma.token.findMany({
+        const tokens = await prisma.token.findMany({
             where: { isActive: true },
             include: {
                 addresses: {
@@ -320,7 +319,7 @@ export class TokenService {
         const normalizedChain = chain.toLowerCase();
 
         // This is the more robust way to find a token by its address on a specific chain
-        const tokenFound = await this.prisma.token.findFirst({
+        const tokenFound = await prisma.token.findFirst({
             where: {
                 isActive: true, // Usually, you only want active tokens
                 addresses: {
@@ -344,7 +343,7 @@ export class TokenService {
 
     public async updateTokenPrice(symbol: string, price: number): Promise<void> {
         try {
-            await this.prisma.token.updateMany({
+            await prisma.token.updateMany({
                 where: { symbol: symbol },
                 data: {
                     price: price,
@@ -358,7 +357,7 @@ export class TokenService {
     }
 
     public async deactivateToken(symbol: string): Promise<void> {
-        await this.prisma.token.updateMany({
+        await prisma.token.updateMany({
             where: { symbol: symbol },
             data: { isActive: false },
         });
@@ -378,7 +377,7 @@ export class TokenService {
      * @returns Array of token data with addresses
      */
     public async getTronTokens(): Promise<TokenWithAddresses[]> {
-        const tokens = await this.prisma.token.findMany({
+        const tokens = await prisma.token.findMany({
             where: {
                 isActive: true,
                 addresses: {

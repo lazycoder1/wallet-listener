@@ -1,8 +1,7 @@
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../../prisma';
+import logger from '../../config/logger';
 import type { UnifiedTransferEvent, NativeTransferEvent, Erc20TransferEvent } from './wsConnectionManager';
 import { WebClient } from '@slack/web-api';
-
-const prisma = new PrismaClient();
 
 export async function handleWebSocketEvent(event: UnifiedTransferEvent): Promise<void> {
     console.log('Received WebSocket event:', {

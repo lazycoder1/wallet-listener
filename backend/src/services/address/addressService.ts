@@ -1,16 +1,15 @@
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../../prisma';
+import logger from '../../config/logger';
 import type { Hex } from 'viem';
 
 export class AddressService {
-    private prisma: PrismaClient;
-
     constructor() {
-        this.prisma = new PrismaClient();
+        // No longer need to create a new PrismaClient instance
     }
 
     async getActiveAddresses(): Promise<string[]> {
         try {
-            const activeCompanyAddresses = await this.prisma.companyAddress.findMany({
+            const activeCompanyAddresses = await prisma.companyAddress.findMany({
                 where: { isActive: true },
                 select: { address: { select: { address: true } } }
             });
@@ -40,7 +39,7 @@ export class AddressService {
                 return false;
             }
 
-            await this.prisma.address.upsert({
+            await prisma.address.upsert({
                 where: { address },
                 create: {
                     address,
@@ -58,7 +57,7 @@ export class AddressService {
                             where: {
                                 uq_company_address: {
                                     companyId,
-                                    addressId: (await this.prisma.address.findUnique({
+                                    addressId: (await prisma.address.findUnique({
                                         where: { address }
                                     }))?.id || 0
                                 }

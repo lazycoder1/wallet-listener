@@ -1,6 +1,5 @@
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import { prisma } from '../../prisma';
+import logger from '../../config/logger';
 
 // It's highly recommended to store this URL in an environment variable
 const SLACK_BOT_WEBHOOK_URL = process.env.SLACK_ALERT_WEBHOOK_URL || 'YOUR_DENO_BOT_WEBHOOK_URL_HERE'; // Fallback for safety, replace or set env var

@@ -4,7 +4,7 @@ import { config as appConfig, EvmChainConfig } from '../../config';
 import logger from '../../config/logger';
 import { TokenService } from '../token/tokenService';
 import axios from 'axios';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../../prisma';
 
 // ============================================================================
 // SHARED INTERFACES
@@ -184,13 +184,11 @@ const ALCHEMY_NETWORKS = {
 
 export class BalanceService {
     private static instance: BalanceService;
-    private prisma: PrismaClient;
     private tokenService: TokenService;
     private clients: Map<number, any> = new Map();
     private chains: EvmChainConfig[];
 
     private constructor() {
-        this.prisma = new PrismaClient();
         this.tokenService = TokenService.getInstance();
         this.chains = appConfig.evmChains;
         this.initializeClients();

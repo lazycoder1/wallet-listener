@@ -3,6 +3,7 @@ import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library'; 
 import axios from 'axios'; // Or use Bun's fetch or node-fetch
 import crypto from 'crypto'; // For generating a secure random state
 import logger from '../config/logger'; // Assuming you have a logger configured
+import { prisma } from '../prisma';
 
 // Placeholder for custom error handling - replace with your actual error module
 class AppError extends Error {
@@ -35,10 +36,6 @@ enum HttpCode {
     SERVICE_UNAVAILABLE = 503,
 }
 // End placeholder for custom error handling
-
-// Assuming prisma client is initialized and exported from a central place
-// import prisma from '../lib/prisma'; 
-const prisma = new PrismaClient(); // Or however you access your Prisma instance
 
 // TODO: Implement token encryption/decryption using Node.js crypto or a library like 'jose'
 // const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;

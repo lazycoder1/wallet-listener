@@ -1,9 +1,7 @@
 import logger from '../../../config/logger';
 import type { NotificationChannel, NotificationMessage } from '../notificationService';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../../../prisma';
 import { WebClient } from '@slack/web-api';
-
-const prisma = new PrismaClient();
 
 interface SlackDepositMessageData {
     recipientAddress: string;

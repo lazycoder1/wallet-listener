@@ -3,7 +3,7 @@ import type { FastifyInstance, RouteShorthandOptions } from 'fastify';
 // Prisma types import can be removed if not used elsewhere in this file.
 // import { Prisma } from '@prisma/client'; 
 import cors from '@fastify/cors';
-import prisma from './prisma';
+import { prisma } from './prisma';
 // Unused validator import, can be removed if not used by remaining routes (e.g. health)
 // import { isValidEVMAddress, isValidTronAddress } from './utils/validators'; 
 // Unused company type imports, can be removed
@@ -15,6 +15,7 @@ import importRoutes from './modules/import/import.routes';
 import slackRoutes from './routes/slackRoutes';
 import { WsConnectionManager } from './services/websocket/wsConnectionManager';
 import { TokenService } from './services/token/tokenService';
+import { ServiceManager } from './services/serviceManager';
 import logger from './config/logger';
 
 // Create an event handler function
@@ -60,22 +61,56 @@ const tronWsManager = new WsConnectionManager(5, 'TRON'); // Refresh addresses e
 evmWsManager.setEventHandler(handleWebSocketEvent);
 tronWsManager.setEventHandler(handleWebSocketEvent);
 
+// Initialize service manager
+const serviceManager = ServiceManager.getInstance();
+
+// Register services with the service manager
+serviceManager.registerService({
+    name: 'TokenService',
+    start: async () => await tokenService.start(),
+    stop: () => tokenService.stop()
+});
+
+serviceManager.registerService({
+    name: 'EVMWebSocketManager',
+    start: async () => await evmWsManager.startConnections(),
+    stop: () => evmWsManager.stopConnections()
+});
+
+serviceManager.registerService({
+    name: 'TronWebSocketManager',
+    start: async () => await tronWsManager.startConnections(),
+    stop: () => tronWsManager.stopConnections()
+});
+
+// Add memory monitoring
+const memoryMonitor = setInterval(() => {
+    const memUsage = process.memoryUsage();
+    logger.info('Memory usage:', {
+        rss: `${Math.round(memUsage.rss / 1024 / 1024)} MB`,
+        heapTotal: `${Math.round(memUsage.heapTotal / 1024 / 1024)} MB`,
+        heapUsed: `${Math.round(memUsage.heapUsed / 1024 / 1024)} MB`,
+        external: `${Math.round(memUsage.external / 1024 / 1024)} MB`
+    });
+}, 60000); // Log every minute
+
+// Clean up memory monitor on shutdown
+const cleanupMemoryMonitor = () => {
+    if (memoryMonitor) {
+        clearInterval(memoryMonitor);
+        logger.info('Memory monitoring stopped');
+    }
+};
+
 // Start WebSocket connections
 const startBlockchainMonitoring = async () => {
     try {
-        // Start token service first
-        await tokenService.start();
-        logger.info('Token service started successfully');
-
-        // Start EVM monitoring
-        await evmWsManager.startConnections();
-        logger.info('EVM blockchain monitoring started successfully');
-
-        // Start Tron monitoring
-        await tronWsManager.startConnections();
-        logger.info('Tron blockchain monitoring started successfully');
+        // Start all services using the service manager
+        await serviceManager.startAll();
+        logger.info('All blockchain monitoring services started successfully');
     } catch (error) {
         logger.error('Failed to start blockchain monitoring:', error);
+        throw error;
     }
 };
 
@@ -104,19 +139,24 @@ server.post('/api/monitoring/mode', async (request, reply) => {
         }
 
         // Stop all monitoring first
-        evmWsManager.stopConnections();
-        tronWsManager.stopConnections();
+        await serviceManager.stopAll();
         logger.info(`Stopped all blockchain monitoring`);
 
         // Start requested monitoring mode(s)
         if (mode === 'EVM' || mode === 'both') {
-            await evmWsManager.startConnections();
-            logger.info('EVM blockchain monitoring started');
+            const evmService = serviceManager.getService('EVMWebSocketManager');
+            if (evmService) {
+                await evmService.start();
+                logger.info('EVM blockchain monitoring started');
+            }
         }
 
         if (mode === 'TRON' || mode === 'both') {
-            await tronWsManager.startConnections();
-            logger.info('Tron blockchain monitoring started');
+            const tronService = serviceManager.getService('TronWebSocketManager');
+            if (tronService) {
+                await tronService.start();
+                logger.info('Tron blockchain monitoring started');
+            }
         }
 
         return {
@@ -170,15 +210,52 @@ const start = async () => {
 process.on('SIGINT', async () => {
     logger.info('Shutting down server...');
 
-    // Stop blockchain monitoring
-    evmWsManager.stopConnections();
-    tronWsManager.stopConnections();
-    tokenService.stop();
+    try {
+        // Stop all services using the service manager
+        await serviceManager.stopAll();
 
-    // Close server
-    await server.close();
-    logger.info('Server shutdown complete');
-    process.exit(0);
+        // Close all Prisma connections
+        await prisma.$disconnect();
+        logger.info('Database connections closed');
+
+        // Close server
+        await server.close();
+        logger.info('Server shutdown complete');
+
+        // Clean up memory monitor
+        cleanupMemoryMonitor();
+
+        process.exit(0);
+    } catch (error) {
+        logger.error('Error during shutdown:', error);
+        process.exit(1);
+    }
+});
+
+// Also handle SIGTERM for containerized environments
+process.on('SIGTERM', async () => {
+    logger.info('Received SIGTERM, shutting down gracefully...');
+
+    try {
+        // Stop all services using the service manager
+        await serviceManager.stopAll();
+
+        // Close all Prisma connections
+        await prisma.$disconnect();
+        logger.info('Database connections closed');
+
+        // Close server
+        await server.close();
+        logger.info('Server shutdown complete');
+
+        // Clean up memory monitor
+        cleanupMemoryMonitor();
+
+        process.exit(0);
+    } catch (error) {
+        logger.error('Error during shutdown:', error);
+        process.exit(1);
+    }
 });
 
 start(); 
