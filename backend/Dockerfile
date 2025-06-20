@@ -56,4 +56,5 @@ EXPOSE 3001
 
 # Command to run your application
 # This assumes your src/index.ts is the entry point and Bun can run it directly.
-CMD ["bun", "src/index.ts"] 
+# Enable garbage collection for better memory management
+CMD ["bun", "--expose-gc", "src/index.ts"] 

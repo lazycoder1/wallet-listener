@@ -1,4 +1,5 @@
 import logger from '../config/logger';
+import { httpClient } from './httpClient';
 
 export interface Service {
     name: string;
@@ -31,7 +32,7 @@ export class ServiceManager {
     public async startAll(): Promise<void> {
         logger.info(`Starting ${this.services.size} services...`);
 
-        for (const [name, service] of this.services) {
+        const startPromises = Array.from(this.services.entries()).map(async ([name, service]) => {
             try {
                 await service.start();
                 logger.info(`Service ${name} started successfully`);
@@ -39,8 +40,9 @@ export class ServiceManager {
                 logger.error(`Failed to start service ${name}:`, error);
                 throw error;
             }
-        }
+        });
 
+        await Promise.all(startPromises);
         logger.info('All services started successfully');
     }
 
@@ -63,6 +65,15 @@ export class ServiceManager {
         });
 
         await Promise.allSettled(stopPromises);
+
+        // Clean up HTTP client connections
+        try {
+            await httpClient.cleanup();
+            logger.info('HTTP client cleanup completed');
+        } catch (error) {
+            logger.error('Error cleaning up HTTP client:', error);
+        }
+
         this.services.clear();
         logger.info('All services stopped');
     }
@@ -73,5 +84,9 @@ export class ServiceManager {
 
     public getServiceCount(): number {
         return this.services.size;
+    }
+
+    public isShutdownInProgress(): boolean {
+        return this.isShuttingDown;
     }
 } 

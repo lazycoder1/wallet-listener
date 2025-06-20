@@ -80,12 +80,13 @@ export class WsConnectionManager {
         const allTrackedAddresses = this.addressManager.getTrackedAddresses();
         logger.info("Internal: Updating connections. Current tracked addresses from AddressManager:", allTrackedAddresses);
 
-        if (this.chainType === 'EVM' && this.evmManager) {
+        // Only update if managers exist and are running
+        if (this.chainType === 'EVM' && this.evmManager && this.running) {
             const evmAddresses = allTrackedAddresses
                 .filter(addr => typeof addr === 'string' && addr.startsWith('0x') && addr.length === 42)
                 .map(addr => addr.toLowerCase() as Hex);
             this.evmManager.updateTrackedAddresses(evmAddresses, this.eventHandler);
-        } else if (this.chainType === 'TRON' && this.tronManager) {
+        } else if (this.chainType === 'TRON' && this.tronManager && this.running) {
             // Assuming tronManager can handle a string[] and does its own filtering/validation
             this.tronManager.updateTrackedAddresses(allTrackedAddresses, this.eventHandler);
         }
@@ -102,6 +103,11 @@ export class WsConnectionManager {
     }
 
     public async startConnections(initialAddresses?: string[]): Promise<void> {
+        // Stop any existing connections first to prevent memory leaks
+        if (this.running) {
+            this.stopConnections();
+        }
+
         if (initialAddresses && initialAddresses.length > 0) {
             this.addressManager.updateAddresses(initialAddresses); // AddressManager handles normalization
             logger.info("Starting connections with provided initial addresses. Count:", this.addressManager.getTrackedAddressCount());
@@ -127,7 +133,10 @@ export class WsConnectionManager {
 
         // Start periodic refresh
         if (this.refreshIntervalMinutes > 0) {
-            if (this.refreshIntervalId) clearInterval(this.refreshIntervalId);
+            if (this.refreshIntervalId) {
+                clearInterval(this.refreshIntervalId);
+                this.refreshIntervalId = null;
+            }
             this.refreshIntervalId = setInterval(async () => {
                 logger.info(`Periodic refresh: Reloading addresses from DB (every ${this.refreshIntervalMinutes} mins)...`);
                 await this.reloadAddressesFromDB();
@@ -176,7 +185,7 @@ export class WsConnectionManager {
         return this.addressManager.getTrackedAddressCount();
     }
 
-    public setChainType(chainType: ChainType): void {
+    public async setChainType(chainType: ChainType): Promise<void> {
         if (this.chainType === chainType) {
             logger.info(`Already using ${chainType} chain type.`);
             return;
@@ -191,7 +200,7 @@ export class WsConnectionManager {
         this.chainType = chainType;
 
         // Start new connections
-        this.startConnections();
+        await this.startConnections();
     }
 }
 

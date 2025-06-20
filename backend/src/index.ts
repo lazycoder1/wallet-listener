@@ -16,6 +16,7 @@ import slackRoutes from './routes/slackRoutes';
 import { WsConnectionManager } from './services/websocket/wsConnectionManager';
 import { TokenService } from './services/token/tokenService';
 import { ServiceManager } from './services/serviceManager';
+import { MemoryLeakDetector } from './services/memoryLeakDetector';
 import logger from './config/logger';
 
 // Create an event handler function
@@ -83,22 +84,65 @@ serviceManager.registerService({
     stop: () => tronWsManager.stopConnections()
 });
 
+// Initialize Memory Leak Detector
+const memoryLeakDetector = MemoryLeakDetector.getInstance();
+
+// Register services with the service manager
+serviceManager.registerService({
+    name: 'MemoryLeakDetector',
+    start: async () => memoryLeakDetector.startMonitoring(),
+    stop: async () => memoryLeakDetector.stopMonitoring()
+});
+
 // Add memory monitoring
 const memoryMonitor = setInterval(() => {
     const memUsage = process.memoryUsage();
+
     logger.info('Memory usage:', {
         rss: `${Math.round(memUsage.rss / 1024 / 1024)} MB`,
         heapTotal: `${Math.round(memUsage.heapTotal / 1024 / 1024)} MB`,
         heapUsed: `${Math.round(memUsage.heapUsed / 1024 / 1024)} MB`,
-        external: `${Math.round(memUsage.external / 1024 / 1024)} MB`
+        external: `${Math.round(memUsage.external / 1024 / 1024)} MB`,
+        arrayBuffers: `${Math.round(memUsage.arrayBuffers / 1024 / 1024)} MB`,
+        heapUsagePercent: `${Math.round((memUsage.heapUsed / memUsage.heapTotal) * 100)}%`
     });
+
+    // Check for potential memory leaks
+    if (memUsage.heapUsed > 500 * 1024 * 1024) { // 500MB threshold
+        logger.warn('High memory usage detected. Consider investigating for memory leaks.');
+    }
+
+    if ((memUsage.heapUsed / memUsage.heapTotal) > 0.9) { // 90% heap usage
+        logger.warn('Heap usage is very high. Consider garbage collection or memory optimization.');
+    }
 }, 60000); // Log every minute
+
+// Add garbage collection monitoring
+let gcMonitor: NodeJS.Timeout | null = null;
+if (global.gc) {
+    gcMonitor = setInterval(() => {
+        const beforeGC = process.memoryUsage();
+        global.gc!();
+        const afterGC = process.memoryUsage();
+
+        const freedMemory = beforeGC.heapUsed - afterGC.heapUsed;
+        if (freedMemory > 10 * 1024 * 1024) { // If more than 10MB was freed
+            logger.info(`Garbage collection freed ${Math.round(freedMemory / 1024 / 1024)} MB`);
+        }
+    }, 300000); // Run GC every 5 minutes
+} else {
+    logger.warn('Garbage collection monitoring not available. Run with --expose-gc flag for better memory management.');
+}
 
 // Clean up memory monitor on shutdown
 const cleanupMemoryMonitor = () => {
     if (memoryMonitor) {
         clearInterval(memoryMonitor);
         logger.info('Memory monitoring stopped');
+    }
+    if (gcMonitor) {
+        clearInterval(gcMonitor);
+        logger.info('GC monitoring stopped');
     }
 };
 
@@ -179,6 +223,7 @@ server.post('/api/monitoring/mode', async (request, reply) => {
 
 // Add API route to get current monitoring status
 server.get('/api/monitoring/status', async (request, reply) => {
+    const memoryStats = memoryLeakDetector.getMemoryStats();
     return {
         status: 'success',
         monitoring: {
@@ -188,6 +233,17 @@ server.get('/api/monitoring/status', async (request, reply) => {
                 evm: evmWsManager.getTrackedAddressCount(),
                 tron: tronWsManager.getTrackedAddressCount()
             }
+        },
+        memory: {
+            current: memoryStats.current ? {
+                rss: `${Math.round(memoryStats.current.rss / 1024 / 1024)} MB`,
+                heapTotal: `${Math.round(memoryStats.current.heapTotal / 1024 / 1024)} MB`,
+                heapUsed: `${Math.round(memoryStats.current.heapUsed / 1024 / 1024)} MB`,
+                external: `${Math.round(memoryStats.current.external / 1024 / 1024)} MB`,
+                arrayBuffers: `${Math.round(memoryStats.current.arrayBuffers / 1024 / 1024)} MB`
+            } : null,
+            trend: memoryStats.trend,
+            growthRate: `${Math.round(memoryStats.growthRate)} MB/min`
         }
     };
 });

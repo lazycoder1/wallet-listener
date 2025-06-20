@@ -9,6 +9,7 @@ services:
             - "3001:3001" # Exposes backend on host port 3001, mapping to container port 3001
         env_file:
             - ./backend/.env # Make sure this file exists with your backend environment variables
+        command: ["bun", "--expose-gc", "src/index.ts"] # Override to enable garbage collection
         volumes:
             [] # Ensure this is an array, even if empty or items are commented out
             # If you have logs or other data you want to persist outside the container for the backend:
