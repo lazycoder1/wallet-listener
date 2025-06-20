@@ -20,6 +20,8 @@ interface ParsedAddress {
   address: string;
   chain_type: 'EVM' | 'TRON';
   threshold?: number;
+  accountName?: string;
+  accountManager?: string;
 }
 
 // Define a type for the Company data we expect from the /companies endpoint
@@ -145,10 +147,20 @@ export default function UploadPage() {
             }
             // For TRON, we use the trimmed address as is.
 
+            // Handle both underscore and camelCase formats for account fields
+            const accountName =
+              row.account_name?.trim() || row.accountName?.trim() || undefined;
+            const accountManager =
+              row.account_manager?.trim() ||
+              row.accountManager?.trim() ||
+              undefined;
+
             parsedAddresses.push({
               address: finalAddress,
               chain_type: chain,
               threshold: addressThreshold,
+              accountName: accountName,
+              accountManager: accountManager,
             });
           } else {
             clientSideInvalidRows.push(row);
@@ -312,6 +324,10 @@ export default function UploadPage() {
           onChange={handleFileChange}
           className='border p-2 w-full'
         />
+        <p className='text-sm text-gray-500 mt-1'>
+          Expected CSV columns: address, chain_type, threshold (optional),
+          account_name (optional), account_manager (optional)
+        </p>
       </div>
       <button
         onClick={handleUploadAndSubmit}
