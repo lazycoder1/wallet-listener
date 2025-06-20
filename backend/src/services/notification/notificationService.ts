@@ -97,15 +97,15 @@ export class NotificationService {
         try {
             if (depositContext.chainType === 'TRON') {
                 const { totalUsdBalance, topTokens } = await this.balanceService.fetchTronScanTokenBalances(recipientAddress);
-                totalBalanceMessage = `Wallet total Tron balance is $${totalUsdBalance.toFixed(2)}.`;
-                totalBalanceValue = `$${totalUsdBalance.toFixed(2)}`;
+                totalBalanceMessage = `Wallet total Tron balance is $${Math.round(totalUsdBalance)}.`;
+                totalBalanceValue = `$${Math.round(totalUsdBalance)}`;
                 if (topTokens.length > 0) {
                     topTokensMessage = " Top tokens: " + topTokens.map(t => `${parseFloat(t.balance) / Math.pow(10, t.tokenDecimal)} ${t.tokenAbbr || t.tokenName} ($${t.assetInUsd.toFixed(2)})`).join(', ');
                 }
             } else { // EVM or other types
                 const totalBalance = await this.balanceService.getTotalBalanceAlchemy(recipientAddress); // New Alchemy-powered balance logic
-                totalBalanceMessage = `Wallet total EVM balance is $${totalBalance.toFixed(2)}.`;
-                totalBalanceValue = `$${totalBalance.toFixed(2)}`;
+                totalBalanceMessage = `Wallet total EVM balance is $${Math.round(totalBalance)}.`;
+                totalBalanceValue = `$${Math.round(totalBalance)}`;
             }
         } catch (balanceError) {
             logger.error({ msg: "Error fetching balance in notifyDeposit", address: recipientAddress, error: balanceError });
