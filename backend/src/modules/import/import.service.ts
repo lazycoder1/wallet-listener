@@ -2,12 +2,19 @@ import prisma from '../../prisma'; // Adjusted path to import from src/prisma.ts
 import { Prisma, PrismaClient } from '@prisma/client';
 import type { ImportAddress, ImportRequestBody } from './import.types';
 import { isValidEVMAddress, isValidTronAddress } from '../../utils/validators';
+import logger from '../../config/logger'; // Import logger
 
 export class ImportService {
     async processImport(data: ImportRequestBody) {
         const { companyId, mode, addresses, original_filename } = data;
         let validRowsCount = 0;
         let invalidRowsCount = 0;
+
+        // For debugging: Log the first few addresses received
+        if (addresses && addresses.length > 0) {
+            logger.info(`[ImportService] Received ${addresses.length} addresses. First 2:`);
+            logger.info(JSON.stringify(addresses.slice(0, 2), null, 2));
+        }
 
         // Fetch the company by ID to ensure it exists and to get its name for the response
         const company = await prisma.company.findUnique({
