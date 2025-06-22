@@ -1,6 +1,6 @@
 import type { Hex } from 'viem';
-import { EvmConnectionManager } from './evmConnectionManager';
-import { TronConnectionManager } from './tronConnectionManager';
+import { EvmPollingMonitor } from './evmPollingMonitor';
+import { TronPollingMonitor } from './tronPollingMonitor';
 import { AddressManager } from '../address/addressManager';
 import { AddressService } from '../address/addressService';
 import logger from '../../config/logger';
@@ -50,12 +50,12 @@ async function fetchAddressesFromDB(): Promise<Hex[]> {
 }
 
 // --- MAIN ORCHESTRATOR CLASS ---
-export class WsConnectionManager {
+export class ChainMonitorManager {
     private eventHandler: EventHandlerCallback | null = null;
     private addressManager: AddressManager;
     private addressService: AddressService;
-    private evmManager: EvmConnectionManager | null = null;
-    private tronManager: TronConnectionManager | null = null;
+    private evmManager: EvmPollingMonitor | null = null;
+    private tronManager: TronPollingMonitor | null = null;
     private refreshIntervalId: NodeJS.Timeout | null = null;
     private chainType: ChainType;
     private running: boolean = false;
@@ -67,11 +67,11 @@ export class WsConnectionManager {
         this.addressManager = new AddressManager();
         this.addressService = new AddressService();
         this.chainType = chainType;
-        logger.info(`WsConnectionManager initialized for ${chainType} chains. Address refresh interval: ${refreshIntervalMinutes} minutes.`);
+        logger.info(`ChainMonitorManager initialized for ${chainType} chains. Address refresh interval: ${refreshIntervalMinutes} minutes.`);
     }
 
     public setEventHandler(handler: EventHandlerCallback): void {
-        logger.info("Global event handler set via WsConnectionManager.");
+        logger.info("Global event handler set via ChainMonitorManager.");
         this.eventHandler = handler;
     }
 
@@ -116,18 +116,18 @@ export class WsConnectionManager {
             await this.reloadAddressesFromDB();
         }
 
-        logger.info(`Starting ${this.chainType} WebSocket connections via WsConnectionManager. Current tracked address count:`, this.addressManager.getTrackedAddressCount());
+        logger.info(`Starting ${this.chainType} connections via ChainMonitorManager. Current tracked address count:`, this.addressManager.getTrackedAddressCount());
 
         if (!this.eventHandler) {
-            logger.warn("Event handler not set in WsConnectionManager before starting. Events might be missed.");
+            logger.warn("Event handler not set in ChainMonitorManager before starting. Events might be missed.");
         }
 
         // Initialize and start the appropriate manager based on chain type
         if (this.chainType === 'EVM') {
-            this.evmManager = new EvmConnectionManager(this.addressManager, this.eventHandler);
+            this.evmManager = new EvmPollingMonitor(this.addressManager, this.eventHandler);
             this.evmManager.start();
         } else if (this.chainType === 'TRON') {
-            this.tronManager = new TronConnectionManager(this.addressManager, this.eventHandler);
+            this.tronManager = new TronPollingMonitor(this.addressManager, this.eventHandler);
             this.tronManager.start();
         }
 
@@ -145,11 +145,11 @@ export class WsConnectionManager {
         }
 
         this.running = true;
-        logger.info(`${this.chainType.toUpperCase()} WebSocket connection manager started via WsConnectionManager.`);
+        logger.info(`${this.chainType.toUpperCase()} connection manager started via ChainMonitorManager.`);
     }
 
     public stopConnections(): void {
-        logger.info(`Stopping ${this.chainType} WebSocket connections via WsConnectionManager...`);
+        logger.info(`Stopping ${this.chainType} connections via ChainMonitorManager...`);
 
         if (this.refreshIntervalId) {
             clearInterval(this.refreshIntervalId);
@@ -166,7 +166,7 @@ export class WsConnectionManager {
         }
 
         this.running = false;
-        logger.info(`${this.chainType.toUpperCase()} WebSocket connection manager stopped via WsConnectionManager.`);
+        logger.info(`${this.chainType.toUpperCase()} connection manager stopped via ChainMonitorManager.`);
     }
 
     /**
@@ -209,7 +209,7 @@ export class WsConnectionManager {
 import { handleWebSocketEvent } from './wsEventHandler'; // Assume this is your actual handler function
 
 async function main() {
-    const wsManager = new WsConnectionManager(1); // Refresh every 1 minute for testing
+    const wsManager = new ChainMonitorManager(1); // Refresh every 1 minute for testing
     wsManager.setEventHandler(handleWebSocketEvent);
     // Option 1: Start with addresses from DB
     await wsManager.startConnections();

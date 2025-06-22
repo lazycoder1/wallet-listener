@@ -1,3 +1,4 @@
+import { EventEmitter } from 'events';
 import { ConsoleNotifier } from './channels/consoleNotifier';
 import { SlackNotifierChannel } from './channels/SlackNotifierChannel';
 import logger from '../../config/logger';
@@ -35,12 +36,13 @@ interface DepositNotificationData {
     [key: string]: any;
 }
 
-export class NotificationService {
+export class NotificationService extends EventEmitter {
     private static instance: NotificationService;
     private channels: NotificationChannel[] = [];
     private balanceService: BalanceService;
 
     private constructor() {
+        super();
         this.addChannel(new ConsoleNotifier());
         this.addChannel(new SlackNotifierChannel());
         this.balanceService = BalanceService.getInstance();

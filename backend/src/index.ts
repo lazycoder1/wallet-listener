@@ -13,7 +13,7 @@ import companyRoutes from './modules/company/company.routes';
 // import type { ImportAddress, ImportRequestBody } from './modules/import/import.types';
 import importRoutes from './modules/import/import.routes';
 import slackRoutes from './routes/slackRoutes';
-import { WsConnectionManager } from './services/websocket/wsConnectionManager';
+import { ChainMonitorManager } from './services/monitors/chainMonitorManager';
 import { TokenService } from './services/token/tokenService';
 import { ServiceManager } from './services/serviceManager';
 import { MemoryLeakDetector } from './services/memoryLeakDetector';
@@ -54,13 +54,13 @@ server.register(slackRoutes, { prefix: '/api/v1/slack' });
 // Initialize Token Service
 const tokenService = TokenService.getInstance();
 
-// Initialize WebSocket Connection Managers
-const evmWsManager = new WsConnectionManager(5, 'EVM'); // Refresh addresses every 5 minutes
-const tronWsManager = new WsConnectionManager(5, 'TRON'); // Refresh addresses every 5 minutes
+// Initialize Connection Monitors
+const evmMonitor = new ChainMonitorManager(5, 'EVM'); // Refresh addresses every 5 minutes
+const tronMonitor = new ChainMonitorManager(5, 'TRON'); // Refresh addresses every 5 minutes
 
 // Set event handlers
-evmWsManager.setEventHandler(handleWebSocketEvent);
-tronWsManager.setEventHandler(handleWebSocketEvent);
+evmMonitor.setEventHandler(handleWebSocketEvent);
+tronMonitor.setEventHandler(handleWebSocketEvent);
 
 // Initialize service manager
 const serviceManager = ServiceManager.getInstance();
@@ -73,15 +73,15 @@ serviceManager.registerService({
 });
 
 serviceManager.registerService({
-    name: 'EVMWebSocketManager',
-    start: async () => await evmWsManager.startConnections(),
-    stop: () => evmWsManager.stopConnections()
+    name: 'EVM_Monitor',
+    start: async () => await evmMonitor.startConnections(),
+    stop: () => evmMonitor.stopConnections()
 });
 
 serviceManager.registerService({
-    name: 'TronWebSocketManager',
-    start: async () => await tronWsManager.startConnections(),
-    stop: () => tronWsManager.stopConnections()
+    name: 'TRON_Monitor',
+    start: async () => await tronMonitor.startConnections(),
+    stop: () => tronMonitor.stopConnections()
 });
 
 // Initialize Memory Leak Detector
@@ -188,7 +188,7 @@ server.post('/api/monitoring/mode', async (request, reply) => {
 
         // Start requested monitoring mode(s)
         if (mode === 'EVM' || mode === 'both') {
-            const evmService = serviceManager.getService('EVMWebSocketManager');
+            const evmService = serviceManager.getService('EVM_Monitor');
             if (evmService) {
                 await evmService.start();
                 logger.info('EVM blockchain monitoring started');
@@ -196,7 +196,7 @@ server.post('/api/monitoring/mode', async (request, reply) => {
         }
 
         if (mode === 'TRON' || mode === 'both') {
-            const tronService = serviceManager.getService('TronWebSocketManager');
+            const tronService = serviceManager.getService('TRON_Monitor');
             if (tronService) {
                 await tronService.start();
                 logger.info('Tron blockchain monitoring started');
@@ -227,11 +227,11 @@ server.get('/api/monitoring/status', async (request, reply) => {
     return {
         status: 'success',
         monitoring: {
-            evm: evmWsManager.isRunning(),
-            tron: tronWsManager.isRunning(),
+            evm: evmMonitor.isRunning(),
+            tron: tronMonitor.isRunning(),
             addressCount: {
-                evm: evmWsManager.getTrackedAddressCount(),
-                tron: tronWsManager.getTrackedAddressCount()
+                evm: evmMonitor.getTrackedAddressCount(),
+                tron: tronMonitor.getTrackedAddressCount()
             }
         },
         memory: {

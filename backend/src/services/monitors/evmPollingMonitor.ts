@@ -12,7 +12,7 @@ import {
 } from 'viem/chains';
 import { config as appConfig } from '../../config';
 // Import types from orchestrator - these will need to be exported from wsConnectionManager.ts
-import type { UnifiedTransferEvent, EventHandlerCallback } from './wsConnectionManager';
+import type { Erc20TransferEvent, NativeTransferEvent, UnifiedTransferEvent, EventHandlerCallback } from './chainMonitorManager';
 import type { AddressManager } from '../address/addressManager'; // Import AddressManager type
 import logger from '../../config/logger';
 import { NotificationService } from '../notification/notificationService';
@@ -38,7 +38,7 @@ const evmChainsConfig: EvmChain[] = [
     { viemChain: bsc, httpUrl: appConfig.networks.bsc.httpRpcUrl!, name: 'BNB', id: bsc.id, pollingInterval: 3000 },
 ];
 
-export class EvmConnectionManager {
+export class EvmPollingMonitor {
     private publicClients: Map<number, PublicClient> = new Map();
     private unsubscribeCallbacksMap: Map<number, Array<() => void>> = new Map();
     private addressManager: AddressManager; // Store AddressManager instance
@@ -342,7 +342,7 @@ export class EvmConnectionManager {
         }
     }
 
-    public start() {
+    public start(): void {
         const initialAddressesRaw = this.addressManager.getTrackedAddresses();
         const initialValidEvmAddresses = this.getValidTrackedEvmAddresses();
         logger.info({
@@ -354,7 +354,7 @@ export class EvmConnectionManager {
         });
 
         if (!this.eventHandler) {
-            logger.warn("Event handler not set for EvmConnectionManager. Events might be missed.");
+            logger.warn("Event handler not set for EvmPollingMonitor. Events might be missed.");
         }
         evmChainsConfig.forEach(chain => {
             try {
@@ -367,11 +367,11 @@ export class EvmConnectionManager {
         });
     }
 
-    public updateConnections(newEventHandler?: EventHandlerCallback | null) {
+    private updateConnections(newEventHandler?: EventHandlerCallback | null) {
         const currentAddressesRaw = this.addressManager.getTrackedAddresses();
         const currentValidEvmAddresses = this.getValidTrackedEvmAddresses();
         logger.info({
-            message: "EvmConnectionManager: Updating connections...",
+            message: "EvmPollingMonitor: Updating connections...",
             totalTrackedByManager: currentAddressesRaw.length,
             rawAddressesFromManager: JSON.stringify(currentAddressesRaw),
             validEvmAddressesForListeners: JSON.stringify(currentValidEvmAddresses)
@@ -409,7 +409,7 @@ export class EvmConnectionManager {
         this.unsubscribeCallbacksMap.clear();
 
         if (!this.eventHandler) {
-            logger.warn("Event handler not set for EvmConnectionManager during update. Events might be missed.");
+            logger.warn("Event handler not set for EvmPollingMonitor during update. Events might be missed.");
         }
         evmChainsConfig.forEach(chain => {
             const client = this.publicClients.get(chain.id);
@@ -430,7 +430,7 @@ export class EvmConnectionManager {
     }
 
     public updateTrackedAddresses(newAddressesHint: Hex[], newEventHandler?: EventHandlerCallback | null) {
-        logger.info("EvmConnectionManager: Received address update hint (will re-evaluate from AddressManager). Hint count:", newAddressesHint.length);
+        logger.info("EvmPollingMonitor: Received address update hint (will re-evaluate from AddressManager). Hint count:", newAddressesHint.length);
         this.updateConnections(newEventHandler);
     }
 

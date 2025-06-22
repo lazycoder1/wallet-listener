@@ -1,7 +1,7 @@
 import type { Hex } from 'viem'; // For trackedAddresses type consistency
 import { config as appConfig } from '../../config';
-// Import types from orchestrator - these will need to be exported from wsConnectionManager.ts
-import type { UnifiedTransferEvent, EventHandlerCallback } from './wsConnectionManager';
+// Import types from orchestrator
+import type { UnifiedTransferEvent, EventHandlerCallback } from './chainMonitorManager';
 import type { AddressManager } from '../address/addressManager';
 import { NotificationService } from '../notification/notificationService';
 import { TokenService } from '../token/tokenService';
@@ -92,7 +92,7 @@ interface TronBlock {
     transactions?: TronTransactionFromBlock[];
 }
 
-export class TronConnectionManager {
+export class TronPollingMonitor {
     private addressManager: AddressManager;
     private eventHandler: EventHandlerCallback | null;
     private notificationService: NotificationService;
@@ -519,13 +519,63 @@ export class TronConnectionManager {
             };
 
             // Process the transfer
-            await this.processTokenTransfer(transferEvent, toAddress);
-            return true;
+            const recipientAddressBase58 = this.tronWebInstance.address.fromHex(toAddress);
+
+            if (trackedAddressesSet.has(recipientAddressBase58)) {
+                // This is a relevant transfer.
+                logger.info(`[TronBlockScanner] Found relevant TRC20 transfer in block ${blockNum} for ${tokenInfo.symbol}: ${transferData.amount} to ${recipientAddressBase58}`);
+
+                // --- Start of new inline processing logic ---
+                const rawValue = transferData.amount;
+                const numericAmount = BigInt(rawValue);
+                const formattedAmount = (Number(numericAmount) / Math.pow(10, tokenInfo.decimals)).toString();
+                const usdValue = tokenInfo.price ? (Number(numericAmount) / Math.pow(10, tokenInfo.decimals)) * tokenInfo.price : 0;
+                const senderAddressBase58 = this.tronWebInstance.address.fromHex(fromAddress);
+
+                await this.notificationService.notifyDeposit(
+                    recipientAddressBase58,
+                    rawValue,
+                    formattedAmount,
+                    tokenInfo.symbol,
+                    tokenInfo.decimals,
+                    contractAddressBase58,
+                    usdValue,
+                    tx.txID,
+                    senderAddressBase58,
+                    BigInt(blockNum),
+                    {
+                        chainId: this.TRON_CHAIN_ID.toString(),
+                        chainName: 'Tron',
+                        chainType: 'TRON'
+                    }
+                );
+
+                if (this.eventHandler) {
+                    this.eventHandler({
+                        type: 'ERC20',
+                        chainId: this.TRON_CHAIN_ID,
+                        data: {
+                            from: fromAddress as Hex,
+                            to: toAddress as Hex,
+                            value: numericAmount,
+                            transactionHash: tx.txID as Hex,
+                            blockNumber: BigInt(blockNum),
+                            logIndex: 0,
+                            tokenContract: contractAddressBase58 as Hex,
+                        }
+                    });
+                }
+                // --- End of new inline processing logic ---
+
+                return true; // Indicate a relevant transfer was found and processed
+            }
 
         } catch (error: any) {
-            logger.warn(`Error processing TRC20 transfer in block ${blockNum}, tx ${tx.txID}:`, error.message);
+            logger.error(`[TronBlockScanner] Error decoding or processing TRC20 transfer in tx ${tx.txID}:`, error);
             return false;
         }
+
+        return false; // No relevant transfer was found or processed
     }
 
     /**
@@ -683,260 +733,41 @@ export class TronConnectionManager {
      * Stop all polling
      */
     public stop(): void {
-        logger.info('Stopping unified Tron block-based monitoring');
+        logger.info('Stopping Tron transaction polling...');
 
+        // Stop the main block polling interval
         if (this.blockPollingInterval) {
             clearInterval(this.blockPollingInterval);
             this.blockPollingInterval = null;
+            logger.info('Stopped main Tron block polling.');
         }
 
-        // Stop any legacy token polling intervals
-        this.stopLegacyTokenPolling();
-
-        logger.info('Unified Tron block-based monitoring stopped');
-    }
-
-    // --- DEPRECATED METHODS (kept for reference during transition) ---
-    // The following methods are no longer used with the unified block-based approach
-    // but are kept temporarily for reference during the transition period.
-
-    /**
-     * DEPRECATED: Legacy per-token contract polling approach
-     * Replaced by unified block scanning in checkForNewBlocks()
-     */
-    private async startAllTokenContractPolling(): Promise<void> {
-        logger.warn('[Tron] startAllTokenContractPolling is deprecated. TRC20 transfers are now handled in unified block scanning.');
-    }
-
-    /**
-     * DEPRECATED: Legacy individual token polling
-     * Replaced by unified block scanning in checkForNewBlocks()
-     */
-    private startIndividualTokenPolling(contractAddress: string, symbol: string, decimals: number): void {
-        logger.warn(`[Tron] startIndividualTokenPolling is deprecated for ${symbol}. TRC20 transfers are now handled in unified block scanning.`);
-    }
-
-    private async fetchAndProcessTransfersForToken(contractAddress: string, symbol: string, decimals: number): Promise<void> {
-        const lastTimestamp = this.tokenLastProcessedTimestamps.get(contractAddress) || (Date.now() - 5 * 60 * 1000);
-
-        const trackedAddressesFromManager = this.addressManager.getTrackedAddresses();
-        const validTronBase58TrackedAddresses = trackedAddressesFromManager
-            .map(addr => this.normalizeAndValidateTronAddress(addr)) // USE NEW METHOD
-            .filter((addr): addr is string => addr !== null);      // Filter out nulls
-        const trackedWalletAddressesSet = new Set(validTronBase58TrackedAddresses);
-
-        if (trackedWalletAddressesSet.size === 0) {
-            // logger.debug(`[Tron] No wallet addresses currently tracked. Skipping TRC20 fetch for ${symbol}.`);
-            return;
+        // Stop all individual token polling intervals
+        if (this.perTokenPollingIntervals.size > 0) {
+            logger.info(`Clearing ${this.perTokenPollingIntervals.size} individual token polling intervals...`);
+            for (const intervalId of this.perTokenPollingIntervals.values()) {
+                clearInterval(intervalId);
+            }
+            this.perTokenPollingIntervals.clear();
+            logger.info('All token polling intervals cleared.');
         }
 
-        try {
-            const baseUrl = (appConfig.tronScan.apiUrl || 'https://apilist.tronscanapi.com').replace(/\/$/, '');
-            const url = `${baseUrl}/api/token_trc20/transfers`;
-
-            const response = await axios.get(url, {
-                params: {
-                    contract_address: contractAddress,
-                    start_timestamp: lastTimestamp + 1,
-                    limit: 100, // Fetch a reasonable number of records (TronScan max might be 50 or 100)
-                    // sort: 'timestamp,asc', // TronScan default is usually descending, check API for sorting if needed
-                    // If descending: fetch, reverse, then process.
-                    confirm: '0', // Fetch only confirmed transfers
-                    // direction: 'in' // Omit to get all transfers, then filter by 'to_address' client-side
-                },
-                headers: appConfig.tronScan.apiKey ? { 'TRON-PRO-API-KEY': appConfig.tronScan.apiKey } : undefined,
-                timeout: 15000 // 15s timeout for TronScan API calls
-            });
-
-            const apiResponse = response.data as { success?: boolean, data?: TronTransferEvent[], total?: number, error?: string };
-
-            if (!apiResponse.success || !Array.isArray(apiResponse.data)) {
-                logger.warn(`[TronScan] Failed to get TRC20 transfers for ${symbol} (${contractAddress}): ${apiResponse.error || 'Invalid data format or API request not successful'}. Data: ${JSON.stringify(apiResponse)}`);
-                return;
-            }
-
-            const transfers = apiResponse.data; // These are all transfers for the token contract
-            if (transfers.length === 0) {
-                // logger.debug(`[TronScan] No new TRC20 transfers found for ${symbol} (${contractAddress}) since timestamp ${lastTimestamp}.`);
-                return;
-            }
-
-            logger.info(`[TronScan] Fetched ${transfers.length} TRC20 transfers for ${symbol} (${contractAddress}). Filtering...`);
-
-            let newLastTimestamp = lastTimestamp;
-            let relevantTransfersCount = 0;
-
-            // Process in chronological order if API returns that way, or sort if needed.
-            // Assuming API returns them in a somewhat sensible order (e.g. by block_timestamp)
-            // If API returns descending, you might want to reverse the array first: transfers.reverse();
-
-            for (const transfer of transfers) {
-                // TronScan API for TRC20 transfers usually gives addresses in Base58 (T...) format directly.
-                // Validate it before use.
-                const toAddressFromApi = transfer.to_address;
-                const validatedToAddressBase58 = this.normalizeAndValidateTronAddress(toAddressFromApi);
-
-                // const fromAddressFromApi = transfer.from_address; 
-                // const validatedFromAddressBase58 = this.normalizeAndValidateTronAddress(fromAddressFromApi); 
-
-                if (validatedToAddressBase58 && trackedWalletAddressesSet.has(validatedToAddressBase58)) {
-                    // logger.debug(`[Tron] Relevant TRC20 transfer to ${validatedToAddressBase58} for token ${symbol}:`, transfer);
-                    await this.processTokenTransfer(transfer, validatedToAddressBase58); // Pass validated address 
-                    relevantTransfersCount++;
-                }
-                // Update timestamp with the timestamp of the last event processed in this batch
-                if (transfer.block_timestamp > newLastTimestamp) {
-                    newLastTimestamp = transfer.block_timestamp;
-                }
-            }
-
-            if (relevantTransfersCount > 0) {
-                logger.info(`[TronScan] Processed ${relevantTransfersCount} relevant TRC20 transfers for ${symbol} (${contractAddress}).`);
-            }
-
-            if (newLastTimestamp > lastTimestamp) {
-                this.tokenLastProcessedTimestamps.set(contractAddress, newLastTimestamp);
-                // logger.debug(`[Tron] Updated last processed timestamp for ${symbol} (${contractAddress}) to ${newLastTimestamp}`);
-            }
-
-        } catch (error: any) {
-            if (axios.isAxiosError(error) && error.response) {
-                logger.error(`[TronScan] Axios error fetching TRC20 transfers for ${symbol} (${contractAddress}) (status: ${error.response.status}):`, error.response.data);
-            } else {
-                logger.error(`[TronScan] Error fetching TRC20 transfers for ${symbol} (${contractAddress}):`, error.message);
-            }
-        }
+        this.isPolling = false;
+        logger.info('TronConnectionManager stopped.');
     }
 
-    /**
-     * DEPRECATED: Check for TRC20 token transfers using per-address approach  
-     * Replaced by unified block scanning in checkForNewBlocks()
-     */
-    private async checkForTokenTransfers(): Promise<void> {
-        logger.warn('[Tron] checkForTokenTransfers is deprecated. TRC20 transfers are now handled in unified block scanning.');
-    }
+    // --- LEGACY METHODS (REMOVED) ---
+    // The methods startAllTokenContractPolling, startIndividualTokenPolling,
+    // fetchAndProcessTransfersForToken, checkForTokenTransfers, and
+    // processAddressTokenTransfers have been removed as they are part of
+    // a legacy polling strategy that is no longer used. The current
+    // implementation uses a unified block-based polling approach.
 
-    /**
-     * DEPRECATED: Process token transfers for a specific address
-     * Replaced by unified block scanning in checkForNewBlocks()
-     */
-    private async processAddressTokenTransfers(address: string, tronTokens: any[]): Promise<void> {
-        logger.warn('[Tron] processAddressTokenTransfers is deprecated. TRC20 transfers are now handled in unified block scanning.');
-    }
-
-    /**
-     * Process a TRC20 token transfer (already filtered to be relevant by new strategy)
-     */
-    private async processTokenTransfer(transfer: TronTransferEvent, validatedToAddressBase58: string): Promise<void> {
-        if (!this.eventHandler) return;
-
-        try {
-            // Fetch token details from TokenService first, fallback to event data
-            const tokenInfoFromDb = await this.tokenService.getTokenByAddress('tron', transfer.contract_address);
-
-            // Only track and notify for known tokens that we have in our database
-            if (!tokenInfoFromDb) {
-                // Log unknown token for future reference, but don't send notification
-                const rawAmount = transfer.value;
-                const numericAmount = BigInt(rawAmount);
-                const decimalsFromApi = transfer.decimals ?? 6; // TRX/USDT typically use 6 decimals
-                const formattedAmount = (Number(numericAmount) / Math.pow(10, decimalsFromApi)).toString();
-
-                logger.info(`[Tron] Unknown TRC20 token transfer detected:`, {
-                    tokenContract: transfer.contract_address,
-                    to: validatedToAddressBase58,
-                    from: transfer.from_address,
-                    amount: formattedAmount,
-                    symbol: transfer.symbol || 'Unknown',
-                    transactionHash: transfer.transaction_id,
-                    blockNumber: transfer.block_number,
-                    chainId: this.TRON_CHAIN_ID
-                });
-                return; // Skip notification for unknown tokens
-            }
-
-            const tokenSymbol = tokenInfoFromDb.symbol;
-            const tokenDecimals = tokenInfoFromDb.decimals;
-            const tokenPrice = tokenInfoFromDb.price || 0;
-
-            const rawAmount = transfer.value; // String as per TronTransferEvent
-            const numericAmount = BigInt(rawAmount);
-
-            let formattedAmount = '0';
-            if (tokenDecimals > 0) {
-                const divisor = BigInt(10) ** BigInt(tokenDecimals);
-                // Handle potential for floating point by doing division then toString.
-                // For very large numbers or high precision, a BigNumber library would be better.
-                const quotient = Number(numericAmount) / Number(divisor);
-                formattedAmount = quotient.toString();
-            } else {
-                formattedAmount = numericAmount.toString();
-            }
-
-            const usdValue = tokenPrice ? (Number(numericAmount) / Math.pow(10, tokenDecimals)) * tokenPrice : 0;
-
-            let senderAddressBase58 = transfer.from_address;
-            // Ensure from_address (sender) is Base58; TronScan API usually provides Base58 for from/to in TRC20 transfers
-            // but if it were hex (e.g. 41...), convert it.
-            if (this.tronWebInstance.utils.isHex(senderAddressBase58) && senderAddressBase58.toLowerCase().startsWith('41')) {
-                try {
-                    senderAddressBase58 = this.tronWebInstance.address.fromHex(senderAddressBase58);
-                } catch (e) {
-                    logger.warn(`[Tron] Failed to convert sender hex ${transfer.from_address} to Base58 in processTokenTransfer. Using original.`);
-                }
-            }
-
-            logger.debug(`[Tron] TRC20 transfer: ${senderAddressBase58} -> ${validatedToAddressBase58}, Value: ${rawAmount} (${formattedAmount} ${tokenSymbol}), Contract: ${transfer.contract_address}`);
-
-            await this.notificationService.notifyDeposit(
-                validatedToAddressBase58,       // recipientAddress
-                rawAmount,                      // rawValue
-                formattedAmount,                // formattedValue
-                tokenSymbol,                    // tokenSymbol
-                tokenDecimals,                  // tokenDecimals
-                transfer.contract_address,      // tokenContractAddress
-                usdValue,                       // usdValue
-                transfer.transaction_id,        // transactionHash
-                senderAddressBase58,            // senderAddress
-                BigInt(transfer.block_number),  // blockNumber
-                { // depositContext
-                    chainId: this.TRON_CHAIN_ID.toString(),
-                    chainName: 'Tron',
-                    chainType: 'TRON'
-                }
-            );
-
-            // Convert addresses to hex format for consistency with EVM chains
-            const fromHex = ('0x' + this.tronWebInstance.address.toHex(senderAddressBase58)) as Hex;
-            const toHex = ('0x' + this.tronWebInstance.address.toHex(validatedToAddressBase58)) as Hex;
-            const tokenHex = ('0x' + this.tronWebInstance.address.toHex(transfer.contract_address)) as Hex;
-
-            // Emit event
-            this.eventHandler({
-                type: 'ERC20',
-                chainId: this.TRON_CHAIN_ID,
-                data: {
-                    from: fromHex,
-                    to: toHex,
-                    value: BigInt(numericAmount),
-                    transactionHash: transfer.transaction_id as Hex,
-                    blockNumber: BigInt(transfer.block_number),
-                    logIndex: 0, // Tron doesn't have log indices
-                    tokenContract: tokenHex
-                }
-            });
-        } catch (error) {
-            logger.error('Error processing TRC20 token transfer:', error);
-        }
-    }
-
-    /**
-     * Update connections with a new event handler
-     */
     public updateConnections(newEventHandler?: EventHandlerCallback | null): void {
-        this.eventHandler = newEventHandler === undefined ? this.eventHandler : newEventHandler;
-        // No immediate re-initialization needed for Tron, as polling loops will pick up changes.
-        logger.info('[Tron] Connections updated (event handler potentially changed).');
+        if (newEventHandler) {
+            this.eventHandler = newEventHandler;
+            logger.info('[Tron] Connections updated (event handler potentially changed).');
+        }
     }
 
     // This method is called by WsConnectionManager when its list of addresses changes.
