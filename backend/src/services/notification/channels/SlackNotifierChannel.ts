@@ -32,6 +32,18 @@ function getExplorerLink(chainName: string, txHash: string): string {
     return baseUrls[chainName] ? `${baseUrls[chainName]}${txHash}` : `#/tx/${txHash}`;
 }
 
+// Utility function to format numbers with comma separators
+function formatNumberWithCommas(value: number | string): string {
+    const numValue = typeof value === 'string' ? parseFloat(value) : value;
+    if (isNaN(numValue)) return value.toString();
+
+    // Format with comma separators for thousands
+    return numValue.toLocaleString('en-US', {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 2
+    });
+}
+
 export class SlackNotifierChannel implements NotificationChannel {
     // Constructor and slackClient property removed
 
@@ -98,7 +110,11 @@ export class SlackNotifierChannel implements NotificationChannel {
             // Fetch accountName and accountManager from companyAddress
             const accountName = companyAddress.accountName || 'N/A';
             const accountManager = companyAddress.accountManager || 'N/A';
-            const totalBalance = depositData.totalBalance || 'N/A'; // If you want to show total balance, ensure it's in depositData
+            const totalBalance = depositData.totalBalance || 'N/A';
+
+            // Format numbers with comma separators
+            const formattedUsdValue = formatNumberWithCommas(usdValue);
+            const formattedTotalBalance = totalBalance !== 'N/A' ? formatNumberWithCommas(totalBalance) : 'N/A';
 
             const messageBlocks = [
                 {
@@ -110,9 +126,12 @@ export class SlackNotifierChannel implements NotificationChannel {
 *Wallet:* ${depositData.recipientAddress}
 *Account Name:* ${accountName}
 *Account Manager:* ${accountManager}
+*Network:* ${depositData.chainName}
 *Currency:* ${depositData.tokenSymbol}
-*Amount:* ${depositData.formattedValue} ${depositData.tokenSymbol} ($${usdValue.toFixed(2)})
-*Total Balance:* ${totalBalance}`
+*Amount:* ${depositData.formattedValue} ${depositData.tokenSymbol} ($${formattedUsdValue})
+*Deposit From:* ${depositData.senderAddress || 'N/A'}
+
+*Total Balance:* ${formattedTotalBalance}`
                     }
                 },
                 {
