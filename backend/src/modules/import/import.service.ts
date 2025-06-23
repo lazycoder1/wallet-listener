@@ -38,6 +38,24 @@ export class ImportService {
             throw new Error('Too many addresses. Max 2000 allowed for synchronous import.');
         }
 
+        // Deduplicate addresses to prevent unique constraint violations
+        const uniqueAddresses = new Map<string, ImportAddress>();
+        const duplicateCount = { count: 0 };
+
+        addresses.forEach((addr) => {
+            const key = addr.address.toLowerCase(); // Normalize for comparison
+            if (uniqueAddresses.has(key)) {
+                duplicateCount.count++;
+                logger.info(`[ImportService] Duplicate address found: ${addr.address}`);
+            } else {
+                uniqueAddresses.set(key, addr);
+            }
+        });
+
+        if (duplicateCount.count > 0) {
+            logger.info(`[ImportService] Removed ${duplicateCount.count} duplicate addresses. Processing ${uniqueAddresses.size} unique addresses.`);
+        }
+
         const processedAddressesInfo: { addressId: number; chainType: string; isValid: boolean; originalAddress: ImportAddress }[] = [];
 
         const importResult = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
@@ -46,13 +64,14 @@ export class ImportService {
                     company: { connect: { id: companyId } },
                     importMode: mode,
                     originalFilename: original_filename,
-                    totalRows: addresses.length,
+                    totalRows: addresses.length, // Keep original count for reporting
                     validRowsCount: 0,
                     invalidRowsCount: 0,
                 },
             });
 
-            for (const impAddr of addresses) {
+            // Process only unique addresses
+            for (const impAddr of uniqueAddresses.values()) {
                 let isValid = false;
                 let currentChainType = impAddr.chain_type;
 

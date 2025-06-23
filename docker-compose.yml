@@ -7,6 +7,10 @@ services:
             dockerfile: Dockerfile
         ports:
             - "3001:3001" # Exposes backend on host port 3001, mapping to container port 3001
+        mem_limit: 1g # Set a memory limit for the container
+        environment:
+            # Tell the JS engine to use a heap size that fits within the container's memory limit
+            NODE_OPTIONS: "--max-old-space-size=896"
         env_file:
             - ./backend/.env # Make sure this file exists with your backend environment variables
         command: ["bun", "--expose-gc", "src/index.ts"] # Override to enable garbage collection
