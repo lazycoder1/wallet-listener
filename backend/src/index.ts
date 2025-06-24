@@ -248,6 +248,80 @@ server.get('/api/monitoring/status', async (request, reply) => {
     };
 });
 
+// Add memory cleanup endpoint
+server.post('/api/memory/cleanup', async (request, reply) => {
+    try {
+        const beforeCleanup = process.memoryUsage();
+
+        // Force garbage collection if available
+        if (global.gc) {
+            global.gc();
+            logger.info('Manual garbage collection triggered');
+        }
+
+        // Clear any cached data if needed
+        // This is where you'd add cleanup for your specific caches
+
+        const afterCleanup = process.memoryUsage();
+        const freedMemory = beforeCleanup.heapUsed - afterCleanup.heapUsed;
+
+        logger.info(`Memory cleanup completed. Freed: ${Math.round(freedMemory / 1024 / 1024)} MB`);
+
+        return {
+            status: 'success',
+            message: 'Memory cleanup completed',
+            freedMemory: `${Math.round(freedMemory / 1024 / 1024)} MB`,
+            before: {
+                heapUsed: `${Math.round(beforeCleanup.heapUsed / 1024 / 1024)} MB`,
+                rss: `${Math.round(beforeCleanup.rss / 1024 / 1024)} MB`
+            },
+            after: {
+                heapUsed: `${Math.round(afterCleanup.heapUsed / 1024 / 1024)} MB`,
+                rss: `${Math.round(afterCleanup.rss / 1024 / 1024)} MB`
+            }
+        };
+    } catch (error: any) {
+        logger.error('Error during memory cleanup:', error);
+        return reply.status(500).send({
+            status: 'error',
+            message: 'Memory cleanup failed',
+            error: error.message
+        });
+    }
+});
+
+// Add service restart endpoint (safer than container restart)
+server.post('/api/services/restart', async (request, reply) => {
+    try {
+        const { service } = request.body as { service?: string };
+
+        if (service === 'evm' || !service) {
+            logger.info('Restarting EVM monitor...');
+            evmMonitor.stopConnections();
+            await evmMonitor.startConnections();
+        }
+
+        if (service === 'tron' || !service) {
+            logger.info('Restarting Tron monitor...');
+            tronMonitor.stopConnections();
+            await tronMonitor.startConnections();
+        }
+
+        return {
+            status: 'success',
+            message: `Service(s) restarted successfully`,
+            restartedServices: service ? [service] : ['evm', 'tron']
+        };
+    } catch (error: any) {
+        logger.error('Error restarting services:', error);
+        return reply.status(500).send({
+            status: 'error',
+            message: 'Service restart failed',
+            error: error.message
+        });
+    }
+});
+
 const start = async () => {
     try {
         const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 3001;

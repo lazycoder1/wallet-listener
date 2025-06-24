@@ -115,6 +115,7 @@ export class SlackNotifierChannel implements NotificationChannel {
             // Format numbers with comma separators
             const formattedUsdValue = formatNumberWithCommas(usdValue);
             const formattedTotalBalance = totalBalance !== 'N/A' ? formatNumberWithCommas(totalBalance) : 'N/A';
+            const formattedTokenAmount = formatNumberWithCommas(depositData.formattedValue);
 
             const messageBlocks = [
                 {
@@ -128,9 +129,8 @@ export class SlackNotifierChannel implements NotificationChannel {
 *Account Manager:* ${accountManager}
 *Network:* ${depositData.chainName}
 *Currency:* ${depositData.tokenSymbol}
-*Amount:* ${depositData.formattedValue} ${depositData.tokenSymbol} ($${formattedUsdValue})
+*Amount:* ${formattedTokenAmount} ${depositData.tokenSymbol} ($${formattedUsdValue})
 *Deposit From:* ${depositData.senderAddress || 'N/A'}
-
 *Total Balance:* ${formattedTotalBalance}`
                     }
                 },
