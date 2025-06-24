@@ -129,17 +129,25 @@ export class NotificationService extends EventEmitter {
         let accountManager: string | undefined = undefined;
         try {
             const prisma = require('../../prisma').default;
-            const companyAddress = await prisma.companyAddress.findFirst({
+            const companyAddresses = await prisma.companyAddress.findMany({
                 where: {
                     address: {
                         address: recipientAddress,
                         chainType: depositContext.chainType,
                     },
+                    isActive: true, // Only active addresses
                 },
             });
-            if (companyAddress) {
-                accountName = companyAddress.accountName;
-                accountManager = companyAddress.accountManager;
+            if (companyAddresses && companyAddresses.length > 0) {
+                // Use the first active company's account details for the notification data
+                // (The actual multi-company notification will be handled by individual channels)
+                const firstCompanyAddress = companyAddresses[0];
+                accountName = firstCompanyAddress.accountName;
+                accountManager = firstCompanyAddress.accountManager;
+
+                if (companyAddresses.length > 1) {
+                    logger.info(`[NotificationService] Address ${recipientAddress} is configured for ${companyAddresses.length} companies. Using first company's account details for notification data.`);
+                }
             }
         } catch (err) {
             logger.error('Error fetching accountName/accountManager for notification:', err);

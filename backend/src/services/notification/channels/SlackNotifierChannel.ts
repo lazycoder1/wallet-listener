@@ -65,12 +65,15 @@ export class SlackNotifierChannel implements NotificationChannel {
 
         try {
             logger.debug("[SlackNotifierChannel] Full depositData for lookup:", depositData);
-            const companyAddress = await prisma.companyAddress.findFirst({
+
+            // Find ALL companies that have this address configured (not just the first one)
+            const companyAddresses = await prisma.companyAddress.findMany({
                 where: {
                     address: {
                         address: depositData.recipientAddress,
                         chainType: depositData.chainType,
                     },
+                    isActive: true, // Only active addresses
                 },
                 include: {
                     address: true,
@@ -82,48 +85,57 @@ export class SlackNotifierChannel implements NotificationChannel {
                 },
             });
 
-            if (!companyAddress || !companyAddress.company) {
-                logger.warn(`[SlackNotifierChannel] No company found for address: ${depositData.recipientAddress}`);
+            if (!companyAddresses || companyAddresses.length === 0) {
+                logger.warn(`[SlackNotifierChannel] No active company found for address: ${depositData.recipientAddress}`);
                 return;
             }
 
-            const slackConfig = companyAddress.company.slackConfiguration;
+            logger.info(`[SlackNotifierChannel] Found ${companyAddresses.length} company(ies) for address: ${depositData.recipientAddress}`);
 
-            if (!slackConfig || !slackConfig.isEnabled || !slackConfig.channelId || !slackConfig.accessToken) {
-                logger.info(`[SlackNotifierChannel] Slack notifications disabled or not configured for company: ${companyAddress.company.name} (Address: ${depositData.recipientAddress})`);
-                return;
-            }
+            // Process each company that has this address configured
+            for (const companyAddress of companyAddresses) {
+                if (!companyAddress.company) {
+                    logger.warn(`[SlackNotifierChannel] Company address record found but company is null for address: ${depositData.recipientAddress}`);
+                    continue;
+                }
 
-            const slackClient = new WebClient(slackConfig.accessToken);
+                const slackConfig = companyAddress.company.slackConfiguration;
 
-            const usdValue = depositData.usdValue || 0;
-            const alertThresholdNumber = companyAddress.threshold ? Number(companyAddress.threshold) : 0;
+                if (!slackConfig || !slackConfig.isEnabled || !slackConfig.channelId || !slackConfig.accessToken) {
+                    logger.info(`[SlackNotifierChannel] Slack notifications disabled or not configured for company: ${companyAddress.company.name} (Address: ${depositData.recipientAddress})`);
+                    continue; // Skip this company but continue with others
+                }
 
-            if (usdValue < alertThresholdNumber) {
-                logger.info(`[SlackNotifierChannel] Deposit value $${usdValue.toFixed(2)} for ${depositData.recipientAddress} is below alert threshold $${alertThresholdNumber.toFixed(2)}. Notification not sent.`);
-                return;
-            }
+                const slackClient = new WebClient(slackConfig.accessToken);
 
-            const explorerLink = getExplorerLink(depositData.chainName, depositData.transactionHash);
-            const senderDisplay = depositData.senderAddress ? ` from ${depositData.senderAddress}` : '';
+                const usdValue = depositData.usdValue || 0;
+                const alertThresholdNumber = companyAddress.threshold ? Number(companyAddress.threshold) : 0;
 
-            // Fetch accountName and accountManager from companyAddress
-            const accountName = companyAddress.accountName || 'N/A';
-            const accountManager = companyAddress.accountManager || 'N/A';
-            const totalBalance = depositData.totalBalance || 'N/A';
+                if (usdValue < alertThresholdNumber) {
+                    logger.info(`[SlackNotifierChannel] Deposit value $${usdValue.toFixed(2)} for ${depositData.recipientAddress} is below alert threshold $${alertThresholdNumber.toFixed(2)} for company ${companyAddress.company.name}. Notification not sent.`);
+                    continue; // Skip this company but continue with others
+                }
 
-            // Format numbers with comma separators
-            const formattedUsdValue = formatNumberWithCommas(usdValue);
-            const formattedTotalBalance = totalBalance !== 'N/A' ? formatNumberWithCommas(totalBalance) : 'N/A';
-            const formattedTokenAmount = formatNumberWithCommas(depositData.formattedValue);
+                const explorerLink = getExplorerLink(depositData.chainName, depositData.transactionHash);
+                const senderDisplay = depositData.senderAddress ? ` from ${depositData.senderAddress}` : '';
 
-            const messageBlocks = [
-                {
-                    type: "section",
-                    text: {
-                        type: "mrkdwn",
-                        text:
-                            `*New Deposit Detected*
+                // Fetch accountName and accountManager from companyAddress
+                const accountName = companyAddress.accountName || 'N/A';
+                const accountManager = companyAddress.accountManager || 'N/A';
+                const totalBalance = depositData.totalBalance || 'N/A';
+
+                // Format numbers with comma separators
+                const formattedUsdValue = formatNumberWithCommas(usdValue);
+                const formattedTotalBalance = totalBalance !== 'N/A' ? formatNumberWithCommas(totalBalance) : 'N/A';
+                const formattedTokenAmount = formatNumberWithCommas(depositData.formattedValue);
+
+                const messageBlocks = [
+                    {
+                        type: "section",
+                        text: {
+                            type: "mrkdwn",
+                            text:
+                                `*New Deposit Detected*
 *Wallet:* ${depositData.recipientAddress}
 *Account Name:* ${accountName}
 *Account Manager:* ${accountManager}
@@ -132,47 +144,53 @@ export class SlackNotifierChannel implements NotificationChannel {
 *Amount:* ${formattedTokenAmount} ${depositData.tokenSymbol} ($${formattedUsdValue})
 *Deposit From:* ${depositData.senderAddress || 'N/A'}
 *Total Balance:* ${formattedTotalBalance}`
-                    }
-                },
-                {
-                    type: "actions",
-                    elements: [
-                        {
-                            type: "button",
-                            text: {
+                        }
+                    },
+                    {
+                        type: "actions",
+                        elements: [
+                            {
+                                type: "button",
+                                text: {
+                                    type: "plain_text",
+                                    text: "View Transaction"
+                                },
+                                url: explorerLink,
+                                style: "primary"
+                            }
+                        ]
+                    },
+                    {
+                        type: "context",
+                        elements: [
+                            {
                                 type: "plain_text",
-                                text: "View Transaction"
-                            },
-                            url: explorerLink,
-                            style: "primary"
-                        }
-                    ]
-                },
-                {
-                    type: "context",
-                    elements: [
-                        {
-                            type: "plain_text",
-                            text: `Tx: ${depositData.transactionHash}${senderDisplay} | Block: ${depositData.blockNumber || 'N/A'} | Timestamp: ${timestamp.toISOString()}`
-                        }
-                    ]
+                                text: `Tx: ${depositData.transactionHash}${senderDisplay} | Block: ${depositData.blockNumber || 'N/A'} | Timestamp: ${timestamp.toISOString()}`
+                            }
+                        ]
+                    }
+                ];
+
+                logger.info(`[SlackNotifierChannel] Attempting to send Slack notification to channel ${slackConfig.channelId} for company ${companyAddress.company.name} (Address: ${depositData.recipientAddress})`);
+
+                try {
+                    await slackClient.chat.postMessage({
+                        channel: slackConfig.channelId,
+                        text: depositData.summaryMessage,
+                        blocks: messageBlocks,
+                        unfurl_links: false,
+                        unfurl_media: false
+                    });
+
+                    logger.info(`[SlackNotifierChannel] Successfully sent Slack notification to company ${companyAddress.company.name} for ${depositData.recipientAddress}`);
+                } catch (slackError) {
+                    logger.error(`[SlackNotifierChannel] Error sending Slack notification to company ${companyAddress.company.name}:`, { error: slackError, address: depositData.recipientAddress });
+                    // Continue with other companies even if one fails
                 }
-            ];
-
-            logger.info(`[SlackNotifierChannel] Attempting to send Slack notification to channel ${slackConfig.channelId} for address ${depositData.recipientAddress}`);
-
-            await slackClient.chat.postMessage({
-                channel: slackConfig.channelId,
-                text: depositData.summaryMessage,
-                blocks: messageBlocks,
-                unfurl_links: false,
-                unfurl_media: false
-            });
-
-            logger.info(`[SlackNotifierChannel] Successfully prepared Slack notification for ${depositData.recipientAddress} (actual sending is currently commented out).`);
+            }
 
         } catch (error) {
-            logger.error("[SlackNotifierChannel] Error sending Slack notification:", { error, address: depositData.recipientAddress });
+            logger.error("[SlackNotifierChannel] Error processing Slack notification:", { error, address: depositData.recipientAddress });
         }
     }
 } 
