@@ -1,5 +1,5 @@
-import { WsConnectionManager } from './services/websocket/wsConnectionManager';
-import type { UnifiedTransferEvent } from './services/websocket/wsConnectionManager';
+import { ChainMonitorManager } from './services/monitors/chainMonitorManager';
+import type { UnifiedTransferEvent } from './services/monitors/chainMonitorManager';
 import { AddressManager } from './services/address/addressManager';
 import { TokenService } from './services/token/tokenService';
 import logger from './config/logger';
@@ -40,21 +40,21 @@ async function main() {
         const tokenService = TokenService.getInstance();
         await tokenService.start();
 
-        // Create a Tron-specific connection manager
-        const wsManager = new WsConnectionManager(1, 'tron'); // Refresh every 1 minute
+        // Create a Tron-specific chain monitor manager
+        const chainManager = new ChainMonitorManager(1, 'TRON'); // Refresh every 1 minute
 
         // Set the event handler
-        wsManager.setEventHandler(handleTransferEvent);
+        chainManager.setEventHandler(handleTransferEvent);
 
         // Start with predefined test addresses
-        await wsManager.startConnections(TEST_ADDRESSES.map(addr => addr as any));
+        await chainManager.startConnections(TEST_ADDRESSES);
 
         logger.info('Tron monitoring started. Press Ctrl+C to exit.');
 
         // Handle graceful shutdown
         process.on('SIGINT', () => {
             logger.info('Shutting down...');
-            wsManager.stopConnections();
+            chainManager.stopConnections();
             tokenService.stop();
             process.exit(0);
         });

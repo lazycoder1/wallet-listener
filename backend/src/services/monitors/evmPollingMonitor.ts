@@ -64,7 +64,7 @@ export class EvmPollingMonitor {
             } else {
                 const addrString = String(addr);
                 if (addrString && (!addrString.startsWith('0x') || (addrString.startsWith('0x') && addrString.length !== 42))) {
-                    logger.warn(`[EVM] Ignoring invalid or non-EVM address in getValidTrackedEvmAddresses: ${addrString}`);
+                    logger.debug(`[EVM] Ignoring invalid or non-EVM address in getValidTrackedEvmAddresses: ${addrString}`);
                 }
             }
         }
