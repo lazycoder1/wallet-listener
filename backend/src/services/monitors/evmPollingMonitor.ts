@@ -88,17 +88,11 @@ export class EvmPollingMonitor {
         return client;
     }
 
-    private watchNativeTransfers(
+    private startBlockScanner(
         client: PublicClient,
         chain: EvmChain,
     ) {
-        const currentTrackedCount = this.addressManager.getTrackedAddressCount();
-        logger.info(`[${chain.name}] Setting up native transfer watching. Current tracked address count: ${currentTrackedCount}`);
-        // Potentially log addresses here if needed, but getValidTrackedEvmAddresses is called inside processNativeTransfers
-
-        if (currentTrackedCount === 0) {
-            logger.info(`[${chain.name}] No addresses tracked by AddressManager. Native transfer watching will be passive until addresses are added.`);
-        }
+        logger.info(`[${chain.name}] Setting up unified block scanner.`);
 
         const unwatch = client.watchBlocks({
             onBlock: async (block) => {
@@ -112,16 +106,21 @@ export class EvmPollingMonitor {
                     return;
                 }
                 try {
+                    // 1. Get full block with transactions for native transfers
                     const fullBlock = await client.getBlock({
                         blockHash: block.hash,
                         includeTransactions: true
                     });
-                    if (!fullBlock || !fullBlock.transactions || fullBlock.transactions.length === 0) {
-                        const blockNumberForLog = block.number ? block.number.toString() : 'unknown';
-                        // logger.info(`[${chain.name}] Block ${blockNumberForLog} (hash: ${block.hash}) has no transactions or fullBlock details are missing.`);
-                        return;
+                    if (fullBlock?.transactions && fullBlock.transactions.length > 0) {
+                        this.processNativeTransfers(fullBlock.transactions, chain, handler);
                     }
-                    this.processNativeTransfers(fullBlock.transactions, chain, handler);
+
+                    // 2. Get all logs in the block for ERC20 transfers
+                    const logs = await client.getLogs({ blockHash: block.hash });
+                    if (logs && logs.length > 0) {
+                        await this.processErc20TransferLogs(logs, chain, handler);
+                    }
+
                 } catch (error) {
                     const blockNumberForErrorLog = block && block.number ? block.number.toString() : (block && block.hash ? `hash ${block.hash}` : 'unknown block');
                     logger.error(`[${chain.name}] Error processing block ${blockNumberForErrorLog}:`, error);
@@ -129,48 +128,10 @@ export class EvmPollingMonitor {
             },
             onError: (error: Error) => {
                 logger.error(`[${chain.name}] Error watching blocks:`, error);
-                // Add more detailed logging
                 logger.error(`[${chain.name}] Full error object during block watching: ${JSON.stringify(error, Object.getOwnPropertyNames(error))}`);
             },
             pollingInterval: chain.pollingInterval,
             poll: true,
-        });
-        const currentUnsubs = this.unsubscribeCallbacksMap.get(chain.id) || [];
-        currentUnsubs.push(unwatch);
-        this.unsubscribeCallbacksMap.set(chain.id, currentUnsubs);
-    }
-
-    private watchErc20Transfers(
-        client: PublicClient,
-        chain: EvmChain,
-    ) {
-        const validTrackedAddresses = this.getValidTrackedEvmAddresses();
-        logger.info(`[${chain.name}] Addresses used for ERC20 'to' filter: ${JSON.stringify(validTrackedAddresses)}`);
-
-        if (validTrackedAddresses.length === 0) {
-            logger.info(`[${chain.name}] No valid EVM addresses are currently tracked. Skipping ERC20 Transfer event watch setup for this chain.`);
-            return;
-        }
-        logger.info(`[${chain.name}] Setting up ERC20 Transfer event watch for ${validTrackedAddresses.length} valid tracked EVM addresses.`);
-        const unwatch = client.watchEvent({
-            event: ERC20_TRANSFER_EVENT,
-            onLogs: async (logs) => {
-                if (!this.eventHandler) {
-                    logger.warn("Event handler not set, skipping ERC20 transfer processing.");
-                    return;
-                }
-                await this.processErc20TransferLogs(logs, chain, this.eventHandler);
-            },
-            onError: (error) => {
-                logger.error(`[${chain.name}] Error watching ERC20 transfers:`, error);
-                // Add more detailed logging
-                logger.error(`[${chain.name}] Full error object during ERC20 watching: ${JSON.stringify(error, Object.getOwnPropertyNames(error))}`);
-            },
-            args: {
-                to: validTrackedAddresses,
-            },
-            poll: true,
-            pollingInterval: chain.pollingInterval,
         });
         const currentUnsubs = this.unsubscribeCallbacksMap.get(chain.id) || [];
         currentUnsubs.push(unwatch);
@@ -252,11 +213,21 @@ export class EvmPollingMonitor {
         chain: EvmChain,
         handler: EventHandlerCallback
     ) {
-        // validTrackedAddresses is implicitly used by the watchEvent filter, but if needed for direct check:
-        // const validTrackedAddresses = this.getValidTrackedEvmAddresses(); 
-        // logger.info(`[${chain.name} - ERC20] Addresses considered for tracking: ${JSON.stringify(validTrackedAddresses)}`);
+        const validTrackedAddresses = this.getValidTrackedEvmAddresses();
+        if (validTrackedAddresses.length === 0) {
+            return; // No addresses to check against
+        }
 
-        for (const log of logs) {
+        const relevantLogs = logs.filter(log => {
+            // Topic[0] is the event signature. Topic[2] is the 'to' address for Transfer events.
+            return log.topics[0]?.toLowerCase() === TRANSFER_EVENT_TOPIC.toLowerCase() &&
+                log.topics[2] &&
+                validTrackedAddresses.some(trackedAddr =>
+                    log.topics[2]?.toLowerCase().includes(trackedAddr.substring(2).toLowerCase())
+                );
+        });
+
+        for (const log of relevantLogs) {
             try {
                 const decodedLog = decodeEventLog({
                     abi: [ERC20_TRANSFER_EVENT],
@@ -359,8 +330,7 @@ export class EvmPollingMonitor {
         evmChainsConfig.forEach(chain => {
             try {
                 const client = this.initializeEvmClient(chain);
-                this.watchNativeTransfers(client, chain);
-                this.watchErc20Transfers(client, chain);
+                this.startBlockScanner(client, chain);
             } catch (error) {
                 logger.error(`Failed to initialize or subscribe to ${chain.name}:`, error);
             }
@@ -414,14 +384,12 @@ export class EvmPollingMonitor {
         evmChainsConfig.forEach(chain => {
             const client = this.publicClients.get(chain.id);
             if (client) {
-                this.watchNativeTransfers(client, chain);
-                this.watchErc20Transfers(client, chain);
+                this.startBlockScanner(client, chain);
             } else {
                 logger.warn(`EVM Client for ${chain.name} not found during update. Re-initializing.`);
                 try {
                     const newClient = this.initializeEvmClient(chain);
-                    this.watchNativeTransfers(newClient, chain);
-                    this.watchErc20Transfers(newClient, chain);
+                    this.startBlockScanner(newClient, chain);
                 } catch (error) {
                     logger.error(`Failed to re-initialize or subscribe to ${chain.name} during update:`, error);
                 }
