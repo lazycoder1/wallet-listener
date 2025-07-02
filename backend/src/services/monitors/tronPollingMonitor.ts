@@ -269,27 +269,15 @@ export class TronPollingMonitor {
      */
     private startBlockPolling(): void {
         if (this.blockPollingInterval) {
-            clearInterval(this.blockPollingInterval);
-            this.blockPollingInterval = null;
+            logger.warn('[Tron Polling] Block polling is already running.');
+            return;
         }
 
-        this.blockPollingInterval = setInterval(async () => {
-            if (this.isPolling) {
-                logger.debug('Previous polling operation still in progress, skipping this cycle');
-                return;
-            }
+        // Poll every 3 seconds, Tron's average block time
+        const pollingInterval = 3000;
+        this.blockPollingInterval = setInterval(() => this.checkForNewBlocks(), pollingInterval);
 
-            this.isPolling = true;
-            try {
-                await this.checkForNewBlocks();
-            } catch (error) {
-                logger.error('Error polling for Tron transactions:', error);
-            } finally {
-                this.isPolling = false;
-            }
-        }, appConfig.networks.tron.tronNativePollingIntervalMs || 3000);
-
-        logger.info(`Unified block polling started with interval of ${appConfig.networks.tron.tronNativePollingIntervalMs || 3000}ms - monitoring TRX + TRC20`);
+        logger.info(`[Tron Polling] Started checking for new blocks every ${pollingInterval / 1000} seconds.`);
     }
 
     /**
@@ -297,129 +285,136 @@ export class TronPollingMonitor {
      * This method now handles BOTH native TRX and TRC20 transfers in a single block scan
      */
     private async checkForNewBlocks(): Promise<void> {
-        let currentBlockNumber = 0;
+        if (this.isPolling) {
+            // logger.debug('[Tron Polling] Check already in progress.');
+            return;
+        }
+        this.isPolling = true;
+
         try {
-            const nowResponse = await axios.post(`${appConfig.networks.tron.wsUrl}/wallet/getnowblock`, {},
-                {
-                    headers: appConfig.networks.tron.apiKey ? { 'TRON-PRO-API-KEY': appConfig.networks.tron.apiKey } : undefined,
-                    timeout: 5000 // 5 second timeout for this critical call
-                }
-            );
-            const nowBlock = nowResponse.data as TronBlock;
-            if (!nowBlock || !nowBlock.block_header || !nowBlock.block_header.raw_data || typeof nowBlock.block_header.raw_data.number !== 'number') {
-                logger.warn('Could not get current block number from getnowblock', nowBlock);
+            const response = await axios.post(`${appConfig.networks.tron.wsUrl}/wallet/getnowblock`, {}, {
+                headers: appConfig.networks.tron.apiKey ? { 'TRON-PRO-API-KEY': appConfig.networks.tron.apiKey } : undefined
+            });
+
+            const latestBlock = response.data as TronBlock;
+            if (!latestBlock?.block_header?.raw_data?.number) {
+                logger.warn('[Tron Polling] Could not determine latest block number.');
                 return;
             }
-            currentBlockNumber = nowBlock.block_header.raw_data.number;
-        } catch (error) {
-            logger.error('Error fetching current block number (getnowblock):', error);
-            if (this.lastProcessedBlockNumber === 0) throw error;
-            logger.warn(`Proceeding with last known lastProcessedBlockNumber: ${this.lastProcessedBlockNumber} due to getnowblock failure.`);
-            currentBlockNumber = this.lastProcessedBlockNumber;
-        }
+            const latestBlockNumber = latestBlock.block_header.raw_data.number;
 
-        if (currentBlockNumber <= this.lastProcessedBlockNumber) {
-            return;
-        }
+            if (latestBlockNumber > this.lastProcessedBlockNumber) {
+                const blocksToProcess = latestBlockNumber - this.lastProcessedBlockNumber;
+                logger.info(`[Tron Polling] ${blocksToProcess} new block(s) to process. From ${this.lastProcessedBlockNumber + 1} to ${latestBlockNumber}.`);
 
-        const batchSize = 10; // Default batch size
-        const blocksToProcessThisCycle = Math.min(batchSize, currentBlockNumber - this.lastProcessedBlockNumber);
-        const endBlock = this.lastProcessedBlockNumber + blocksToProcessThisCycle;
+                // Get tracked addresses and tokens
+                const trackedAddresses = this.addressManager.getTrackedAddresses();
+                const validTronAddresses = trackedAddresses
+                    .map(addr => this.normalizeAndValidateTronAddress(addr))
+                    .filter((addr): addr is string => addr !== null);
+                const trackedAddressesSet = new Set(validTronAddresses.map(addr => addr.toLowerCase()));
 
-        logger.info(`New blocks detected. Current: ${currentBlockNumber}, Last Processed: ${this.lastProcessedBlockNumber}. Processing blocks from ${this.lastProcessedBlockNumber + 1} to ${endBlock} (up to ${blocksToProcessThisCycle} blocks).`);
+                const tronTokens = await this.tokenService.getTronTokens();
+                const trackedTokenContracts = new Map<string, any>();
+                for (const token of tronTokens) {
+                    const tronAddress = token.addresses.find((addr: any) => addr.chain === 'tron');
+                    if (tronAddress) {
+                        trackedTokenContracts.set(tronAddress.address.toLowerCase(), token);
+                    }
+                }
 
-        // Get tracked addresses and tokens
-        const trackedAddresses = this.addressManager.getTrackedAddresses();
-        const validTronAddresses = trackedAddresses
-            .map(addr => this.normalizeAndValidateTronAddress(addr))
-            .filter((addr): addr is string => addr !== null);
-        const trackedAddressesSet = new Set(validTronAddresses.map(addr => addr.toLowerCase()));
+                const BATCH_SIZE = 100; // TronGrid's limit for getblockbylimitnext is 100
+                let currentBlock = this.lastProcessedBlockNumber + 1;
+                let batchFailed = false;
 
-        // Get tracked TRC20 tokens
-        const tronTokens = await this.tokenService.getTronTokens();
-        const trackedTokenContracts = new Map<string, any>();
-        for (const token of tronTokens) {
-            const tronAddress = token.addresses.find((addr: any) => addr.chain === 'tron');
-            if (tronAddress) {
-                trackedTokenContracts.set(tronAddress.address.toLowerCase(), token);
+                while (currentBlock <= latestBlockNumber && !batchFailed) {
+                    const endBlock = Math.min(currentBlock + BATCH_SIZE - 1, latestBlockNumber);
+                    logger.info(`[Tron Polling] Fetching blocks from ${currentBlock} to ${endBlock}.`);
+
+                    try {
+                        const batchResponse = await axios.post(`${appConfig.networks.tron.wsUrl}/wallet/getblockbylimitnext`,
+                            { startNum: currentBlock, endNum: endBlock + 1 }, // endNum is exclusive
+                            { headers: appConfig.networks.tron.apiKey ? { 'TRON-PRO-API-KEY': appConfig.networks.tron.apiKey } : undefined }
+                        );
+
+                        const blocks: TronBlock[] = batchResponse.data.block;
+                        if (!blocks || blocks.length === 0) {
+                            logger.warn(`[Tron Polling] No blocks returned for range ${currentBlock}-${endBlock}. Will retry.`);
+                            break; // Exit while loop, will retry in the next cycle
+                        }
+
+                        for (const block of blocks) {
+                            const blockNum = block.block_header.raw_data.number;
+                            // It's possible the API gives us blocks we already processed if there are edge cases,
+                            // or if a previous cycle failed midway through a batch.
+                            if (blockNum > this.lastProcessedBlockNumber) {
+                                const success = await this.processBlock(block, trackedAddressesSet, trackedTokenContracts);
+                                if (success) {
+                                    this.lastProcessedBlockNumber = blockNum; // Update state only after successful processing
+                                } else {
+                                    logger.warn(`[Tron Polling] Halting current batch processing due to failure at block ${blockNum}. Will retry.`);
+                                    batchFailed = true;
+                                    break;
+                                }
+                            }
+                        }
+                        currentBlock = endBlock + 1;
+                    } catch (batchError: any) {
+                        logger.error(`[Tron Polling] Failed to fetch or process block batch ${currentBlock}-${endBlock}. Error: ${batchError.message}. Will retry.`);
+                        break; // Exit the while loop to retry the whole range in the next cycle
+                    }
+                }
             }
+        } catch (error: any) {
+            logger.error(`[Tron Polling] CRITICAL: Failed to check for new blocks. Error: ${error.message}`);
+        } finally {
+            this.isPolling = false;
         }
-
-        logger.info(`[Tron Block Scanner] Processing ${blocksToProcessThisCycle} blocks. Tracking ${trackedAddressesSet.size} addresses and ${trackedTokenContracts.size} token contracts.`);
-
-        if (trackedAddressesSet.size === 0) {
-            logger.warn('[Tron Block Scanner] No valid addresses to track. Skipping block processing.');
-            this.lastProcessedBlockNumber = endBlock;
-            return;
-        }
-
-        for (let blockNum = this.lastProcessedBlockNumber + 1; blockNum <= endBlock; blockNum++) {
-            try {
-                await this.processBlock(blockNum, trackedAddressesSet, trackedTokenContracts);
-            } catch (error: any) {
-                logger.error(`Error processing block ${blockNum}:`, error.message);
-            }
-        }
-        this.lastProcessedBlockNumber = endBlock;
     }
 
     /**
      * Process a single block for both native TRX and TRC20 transfers
      */
     private async processBlock(
-        blockNum: number,
+        block: TronBlock,
         trackedAddressesSet: Set<string>,
         trackedTokenContracts: Map<string, any>
-    ): Promise<void> {
-        const blockResponse = await axios.post(`${appConfig.networks.tron.wsUrl}/wallet/getblockbynum`,
-            { num: blockNum },
-            {
-                headers: appConfig.networks.tron.apiKey ? { 'TRON-PRO-API-KEY': appConfig.networks.tron.apiKey } : undefined,
-                timeout: 10000
-            }
-        );
-        const block = blockResponse.data as TronBlock;
-
-        if (!block || !block.transactions) {
-            logger.warn(`Block ${blockNum} has no transactions or block data is malformed.`);
-            return;
-        }
-
-        logger.debug(`Processing block ${blockNum} with ${block.transactions.length} transaction(s).`);
-
-        let nativeTransfers = 0;
-        let trc20Transfers = 0;
-
-        for (const tx of block.transactions) {
-            if (!tx.ret || !tx.ret[0] || tx.ret[0].contractRet !== 'SUCCESS' || !tx.raw_data || !tx.raw_data.contract) {
-                continue;
+    ): Promise<boolean> {
+        const blockNum = block.block_header.raw_data.number;
+        try {
+            if (!block.transactions) {
+                // logger.debug(`[Tron Polling] Block #${blockNum} has no transactions.`);
+                return true; // No transactions is a success case.
             }
 
-            for (const contract of tx.raw_data.contract) {
-                try {
-                    // Process Native TRX Transfers
-                    if (contract.type === 'TransferContract' && contract.parameter && contract.parameter.value) {
-                        const transferred = await this.processNativeTransferFromBlock(
-                            tx, contract, blockNum, trackedAddressesSet
-                        );
-                        if (transferred) nativeTransfers++;
-                    }
+            let nativeTransfers = 0;
+            let trc20Transfers = 0;
 
-                    // Process TRC20 Transfers (NEW BLOCK-BASED APPROACH)
-                    else if (contract.type === 'TriggerSmartContract' && contract.parameter && contract.parameter.value) {
-                        const transferred = await this.processTRC20TransferFromBlock(
-                            tx, contract, blockNum, trackedAddressesSet, trackedTokenContracts
-                        );
-                        if (transferred) trc20Transfers++;
+            for (const tx of block.transactions) {
+                if (!tx.raw_data || !tx.raw_data.contract) continue;
+
+                for (const contract of tx.raw_data.contract) {
+                    let processed = false;
+                    if (contract.type === 'TransferContract') {
+                        processed = await this.processNativeTransferFromBlock(tx, contract, blockNum, trackedAddressesSet);
+                        if (processed) nativeTransfers++;
+                    } else if (contract.type === 'TriggerSmartContract') {
+                        processed = await this.processTRC20TransferFromBlock(tx, contract, blockNum, trackedAddressesSet, trackedTokenContracts);
+                        if (processed) trc20Transfers++;
                     }
-                } catch (error: any) {
-                    logger.warn(`Error processing contract in block ${blockNum}, tx ${tx.txID}:`, error.message);
                 }
             }
-        }
 
-        if (nativeTransfers > 0 || trc20Transfers > 0) {
-            logger.info(`Block ${blockNum}: Found ${nativeTransfers} native TRX transfers and ${trc20Transfers} TRC20 transfers`);
+            if (nativeTransfers > 0 || trc20Transfers > 0) {
+                logger.info(`Block ${blockNum}: Found ${nativeTransfers} native TRX transfers and ${trc20Transfers} TRC20 transfers`);
+            }
+            return true;
+        } catch (error: any) {
+            logger.error(`[Tron Polling] CRITICAL: Failed to process data in block #${blockNum}. Error: ${error.message}`);
+            if (error.stack) {
+                logger.error(error.stack);
+            }
+            return false;
         }
     }
 
