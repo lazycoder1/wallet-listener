@@ -94,6 +94,8 @@ export class EvmPollingMonitor {
     ) {
         logger.info(`[${chain.name}] Setting up unified block scanner.`);
 
+        let lastProcessedBlock: bigint | null = null;
+
         const unwatch = client.watchBlocks({
             onBlock: async (block) => {
                 if (!this.eventHandler) {
@@ -101,28 +103,50 @@ export class EvmPollingMonitor {
                     return;
                 }
                 const handler = this.eventHandler;
-                if (!block || !block.hash) {
-                    logger.warn(`[${chain.name}] Received a block without a hash in watchBlocks. Skipping.`);
+
+                if (!block || !block.number) {
+                    logger.warn(`[${chain.name}] Received a block without a number in watchBlocks. Skipping.`);
                     return;
                 }
-                try {
-                    // 1. Get full block with transactions for native transfers
-                    const fullBlock = await client.getBlock({
-                        blockHash: block.hash,
-                        includeTransactions: true
-                    });
-                    if (fullBlock?.transactions && fullBlock.transactions.length > 0) {
-                        this.processNativeTransfers(fullBlock.transactions, chain, handler);
-                    }
 
-                    // 2. Get all logs in the block for ERC20 transfers
-                    const logs = await client.getLogs({ blockHash: block.hash });
+                // Simple check to avoid reprocessing the same block if watchBlocks fires multiple times
+                if (block.number === lastProcessedBlock) {
+                    logger.debug(`[${chain.name}] Already processed block ${block.number}. Skipping.`);
+                    return;
+                }
+
+                try {
+                    const blockNumberForLog = block.number.toString();
+                    logger.debug(`[${chain.name}] Processing block ${blockNumberForLog}.`);
+
+                    // 1. Fetch all ERC20 transfer logs for the block more efficiently
+                    const logs = await client.getLogs({
+                        fromBlock: block.number,
+                        toBlock: block.number,
+                        event: ERC20_TRANSFER_EVENT
+                    });
+
                     if (logs && logs.length > 0) {
+                        logger.debug(`[${chain.name}] Found ${logs.length} ERC20 transfer logs in block ${blockNumberForLog}.`);
                         await this.processErc20TransferLogs(logs, chain, handler);
                     }
 
+                    // 2. Get full block ONLY for native transfers if needed
+                    const trackedAddresses = this.addressManager.getTrackedAddresses();
+                    if (trackedAddresses.length > 0) {
+                        const fullBlock = await client.getBlock({
+                            blockNumber: block.number,
+                            includeTransactions: true
+                        });
+                        if (fullBlock?.transactions && fullBlock.transactions.length > 0) {
+                            this.processNativeTransfers(fullBlock.transactions, chain, handler);
+                        }
+                    }
+
+                    lastProcessedBlock = block.number;
+
                 } catch (error) {
-                    const blockNumberForErrorLog = block && block.number ? block.number.toString() : (block && block.hash ? `hash ${block.hash}` : 'unknown block');
+                    const blockNumberForErrorLog = block && block.number ? block.number.toString() : 'unknown block';
                     logger.error(`[${chain.name}] Error processing block ${blockNumberForErrorLog}:`, error);
                 }
             },
@@ -429,9 +453,4 @@ export class EvmPollingMonitor {
         });
         this.unsubscribeCallbacksMap.clear();
         this.publicClients.forEach((client, chainId) => {
-            logger.info(`Clearing EVM client for chain ID: ${chainId}`);
-        });
-        this.publicClients.clear();
-        logger.info("All EVM subscriptions stopped and clients cleared.");
-    }
-} 
+            logger.info(`

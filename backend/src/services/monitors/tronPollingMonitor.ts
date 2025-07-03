@@ -8,6 +8,7 @@ import { TokenService } from '../token/tokenService';
 import axios from 'axios';
 import logger from '../../config/logger';
 import * as TronWebLib from 'tronweb';
+import { formatUnits } from 'viem';
 
 // Placeholder for Tron-specific client instance or connection references
 // e.g., let tronWebsocketClient: any = null;
@@ -467,110 +468,73 @@ export class TronPollingMonitor {
     ): Promise<boolean> {
         try {
             const contractData = contract.parameter.value;
-            const contractAddress = contractData.contract_address;
-
-            if (!contractAddress) return false;
-
-            // Convert contract address to base58
-            const contractAddressBase58 = this.tronWebInstance.address.fromHex(contractAddress);
-
-            // Check if this is a tracked token contract
-            if (!trackedTokenContracts.has(contractAddressBase58.toLowerCase())) {
+            const contractAddressHex = contractData.contract_address;
+            if (!contractAddressHex) {
                 return false;
             }
 
-            // Decode the transfer data
-            const transferData = this.decodeTRC20Transfer(contractData.data);
-            if (!transferData) return false;
-
-            // Get addresses
-            const fromAddress = this.tronWebInstance.address.fromHex(contractData.owner_address);
-            const toAddress = transferData.to; // Already converted to base58 in decodeTRC20Transfer
-
-            // Check if transfer involves tracked addresses
-            const isRelevant = trackedAddressesSet.has(fromAddress.toLowerCase()) ||
-                trackedAddressesSet.has(toAddress.toLowerCase());
-
-            if (!isRelevant) return false;
-
-            // Get token info
+            const contractAddressBase58 = this.tronWebInstance.address.fromHex(contractAddressHex);
             const tokenInfo = trackedTokenContracts.get(contractAddressBase58.toLowerCase());
-
-            logger.info(`[TRON TRC20] Block: ${blockNum}, TX: ${tx.txID}, From: ${fromAddress}, To: ${toAddress}, Token: ${tokenInfo.symbol}, Amount: ${transferData.amount}`);
-
-            // Create TronTransferEvent compatible object
-            const transferEvent: TronTransferEvent = {
-                transaction_id: tx.txID,
-                block_timestamp: tx.raw_data.timestamp,
-                block_number: blockNum,
-                contract_address: contractAddressBase58,
-                from_address: fromAddress,
-                to_address: toAddress,
-                value: transferData.amount,
-                decimals: tokenInfo.decimals,
-                symbol: tokenInfo.symbol,
-                name: tokenInfo.name,
-                event_name: 'Transfer'
-            };
-
-            // Process the transfer
-            const recipientAddressBase58 = this.tronWebInstance.address.fromHex(toAddress);
-
-            if (trackedAddressesSet.has(recipientAddressBase58)) {
-                // This is a relevant transfer.
-                logger.info(`[TronBlockScanner] Found relevant TRC20 transfer in block ${blockNum} for ${tokenInfo.symbol}: ${transferData.amount} to ${recipientAddressBase58}`);
-
-                // --- Start of new inline processing logic ---
-                const rawValue = transferData.amount;
-                const numericAmount = BigInt(rawValue);
-                const formattedAmount = (Number(numericAmount) / Math.pow(10, tokenInfo.decimals)).toString();
-                const usdValue = tokenInfo.price ? (Number(numericAmount) / Math.pow(10, tokenInfo.decimals)) * tokenInfo.price : 0;
-                const senderAddressBase58 = this.tronWebInstance.address.fromHex(fromAddress);
-
-                await this.notificationService.notifyDeposit(
-                    recipientAddressBase58,
-                    rawValue,
-                    formattedAmount,
-                    tokenInfo.symbol,
-                    tokenInfo.decimals,
-                    contractAddressBase58,
-                    usdValue,
-                    tx.txID,
-                    senderAddressBase58,
-                    BigInt(blockNum),
-                    {
-                        chainId: this.TRON_CHAIN_ID.toString(),
-                        chainName: 'Tron',
-                        chainType: 'TRON'
-                    }
-                );
-
-                if (this.eventHandler) {
-                    this.eventHandler({
-                        type: 'ERC20',
-                        chainId: this.TRON_CHAIN_ID,
-                        data: {
-                            from: fromAddress as Hex,
-                            to: toAddress as Hex,
-                            value: numericAmount,
-                            transactionHash: tx.txID as Hex,
-                            blockNumber: BigInt(blockNum),
-                            logIndex: 0,
-                            tokenContract: contractAddressBase58 as Hex,
-                        }
-                    });
-                }
-                // --- End of new inline processing logic ---
-
-                return true; // Indicate a relevant transfer was found and processed
+            if (!tokenInfo) {
+                return false;
             }
 
+            const decoded = this.decodeTRC20Transfer(contractData.data);
+            if (!decoded) {
+                return false;
+            }
+
+            const toAddress = decoded.to;
+            if (!trackedAddressesSet.has(toAddress.toLowerCase())) {
+                return false;
+            }
+
+            const fromAddress = this.tronWebInstance.address.fromHex(contractData.owner_address);
+
+            logger.info(`[TRON TRC20] Block: ${blockNum}, TX: ${tx.txID}, From: ${fromAddress}, To: ${toAddress}, Token: ${tokenInfo.symbol}, Amount: ${decoded.amount}`);
+
+            const numericAmount = BigInt(decoded.amount);
+            const formattedAmount = formatUnits(numericAmount, tokenInfo.decimals);
+            const usdValue = tokenInfo.price ? parseFloat(formattedAmount) * tokenInfo.price : 0;
+
+            await this.notificationService.notifyDeposit(
+                toAddress,
+                decoded.amount,
+                formattedAmount,
+                tokenInfo.symbol,
+                tokenInfo.decimals,
+                contractAddressBase58,
+                usdValue,
+                tx.txID,
+                fromAddress,
+                BigInt(blockNum),
+                {
+                    chainId: this.TRON_CHAIN_ID,
+                    chainName: 'Tron',
+                    chainType: 'TRON'
+                }
+            );
+
+            if (this.eventHandler) {
+                this.eventHandler({
+                    type: 'ERC20',
+                    chainId: this.TRON_CHAIN_ID,
+                    data: {
+                        from: fromAddress as Hex,
+                        to: toAddress as Hex,
+                        value: BigInt(decoded.amount),
+                        transactionHash: tx.txID as Hex,
+                        blockNumber: BigInt(blockNum),
+                        logIndex: 0,
+                        tokenContract: contractAddressBase58 as Hex,
+                    }
+                });
+            }
+            return true;
         } catch (error: any) {
             logger.error(`[TronBlockScanner] Error decoding or processing TRC20 transfer in tx ${tx.txID}:`, error);
             return false;
         }
-
-        return false; // No relevant transfer was found or processed
     }
 
     /**
