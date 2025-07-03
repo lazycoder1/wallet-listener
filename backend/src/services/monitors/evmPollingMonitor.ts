@@ -453,4 +453,8 @@ export class EvmPollingMonitor {
         });
         this.unsubscribeCallbacksMap.clear();
         this.publicClients.forEach((client, chainId) => {
-            logger.info(`
+            logger.info(`Stopping client for chain ${chainId}`);
+        });
+        logger.info('EVM polling connections stopped.');
+    }
+}
