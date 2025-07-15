@@ -96,6 +96,7 @@ export class NotificationService extends EventEmitter {
         let topTokensMessage = "";
         let totalBalanceValue: string | undefined = undefined;
 
+        /*
         try {
             if (depositContext.chainType === 'TRON') {
                 const { totalUsdBalance, topTokens } = await this.balanceService.fetchTronScanTokenBalances(recipientAddress);
@@ -114,6 +115,7 @@ export class NotificationService extends EventEmitter {
             totalBalanceMessage = "Could not retrieve current balance.";
             totalBalanceValue = 'N/A';
         }
+        */
 
         const summaryMsg = `Wallet ${recipientAddress} has a deposit of ${formattedValue} ${tokenSymbol} worth $${usdValue.toFixed(2)}. ${totalBalanceMessage}${topTokensMessage}`;
 
