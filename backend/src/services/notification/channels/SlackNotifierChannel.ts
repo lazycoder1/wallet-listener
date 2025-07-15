@@ -119,14 +119,11 @@ export class SlackNotifierChannel implements NotificationChannel {
                 const explorerLink = getExplorerLink(depositData.chainName, depositData.transactionHash);
                 const senderDisplay = depositData.senderAddress ? ` from ${depositData.senderAddress}` : '';
 
-                // Fetch accountName and accountManager from companyAddress
-                const accountName = companyAddress.accountName || 'N/A';
-                const accountManager = companyAddress.accountManager || 'N/A';
-                const totalBalance = depositData.totalBalance || 'N/A';
+                // Fetch accountManager from companyAddress
+                const accountManager = (companyAddress as any).accountManager || 'N/A';
 
                 // Format numbers with comma separators
                 const formattedUsdValue = formatNumberWithCommas(usdValue);
-                const formattedTotalBalance = totalBalance !== 'N/A' ? formatNumberWithCommas(totalBalance) : 'N/A';
                 const formattedTokenAmount = formatNumberWithCommas(depositData.formattedValue);
 
                 const messageBlocks = [
@@ -137,13 +134,11 @@ export class SlackNotifierChannel implements NotificationChannel {
                             text:
                                 `*New Deposit Detected*
 *Wallet:* ${depositData.recipientAddress}
-*Account Name:* ${accountName}
 *Account Manager:* ${accountManager}
 *Network:* ${depositData.chainName}
 *Currency:* ${depositData.tokenSymbol}
 *Amount:* ${formattedTokenAmount} ${depositData.tokenSymbol} ($${formattedUsdValue})
-*Deposit From:* ${depositData.senderAddress || 'N/A'}
-*Total Balance:* ${formattedTotalBalance}`
+*Deposit From:* ${depositData.senderAddress || 'N/A'}`
                         }
                     },
                     {
