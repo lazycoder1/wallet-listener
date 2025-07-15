@@ -36,7 +36,9 @@ export class CompanyService {
             name: name.trim(),
         };
 
-        if (slackConfigInput && Object.keys(slackConfigInput).length > 0) {
+        // Only create a slack configuration if a slackTeamId is provided.
+        // This is the mandatory field.
+        if (slackConfigInput && slackConfigInput.slackTeamId) {
             const slackData = buildSlackConfigPayload(slackConfigInput);
 
             if (Object.keys(slackData).length > 0) {
