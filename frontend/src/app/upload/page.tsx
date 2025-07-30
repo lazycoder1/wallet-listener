@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import Papa, { ParseResult } from 'papaparse';
 import ProtectedAdminLayout from '@/components/ProtectedAdminLayout';
 import { apiClient } from '@/lib/api';
+import { useAuth } from '@/lib/auth';
 
 // Define types for what we expect from the backend
 interface BackendImportResponse {
@@ -39,6 +40,7 @@ interface CompanyWithSlackConfig {
 }
 
 export default function UploadPage() {
+  const { isAuthenticated } = useAuth();
   // const [companyName, setCompanyName] = useState(''); // Replaced by selectedCompanyId
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>(''); // Store as string for select, parse to int on submit
   const [allCompanies, setAllCompanies] = useState<CompanyWithSlackConfig[]>(
@@ -60,11 +62,24 @@ export default function UploadPage() {
   const [apiError, setApiError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Only fetch companies if user is authenticated
+    if (!isAuthenticated) {
+      console.log('⏳ Skipping companies fetch - not authenticated yet');
+      return;
+    }
+
     const fetchCompanies = async () => {
       setCompaniesLoading(true);
       setCompaniesError(null);
       try {
+        console.log('🏢 Fetching companies...');
+        const token = apiClient.getToken();
+        console.log(
+          '🔑 Token available for companies call:',
+          token ? 'YES' : 'NO'
+        );
         const data: CompanyWithSlackConfig[] = await apiClient.getCompanies();
+        console.log('✅ Companies fetched successfully:', data);
         setAllCompanies(data);
 
         // Filter companies that have Slack configured and enabled
@@ -84,7 +99,7 @@ export default function UploadPage() {
     };
 
     fetchCompanies();
-  }, []);
+  }, [isAuthenticated]); // Trigger when authentication state changes
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {

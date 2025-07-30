@@ -72,6 +72,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       setUser(response.user);
       setIsAuthenticated(true);
+
+      // Verify token is stored
+      setTimeout(() => {
+        const storedToken = apiClient.getToken();
+        console.log(
+          '🔄 Token check after login:',
+          storedToken ? 'STORED' : 'MISSING'
+        );
+      }, 100);
+
       return true;
     } catch (error: any) {
       console.error('❌ Login failed:', error);
