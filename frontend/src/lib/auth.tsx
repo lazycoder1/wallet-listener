@@ -30,13 +30,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Check if user is already authenticated on mount
     const checkAuth = async () => {
       const token = apiClient.getToken();
+      console.log(
+        '🔄 Checking auth on mount. Token:',
+        token ? token.substring(0, 20) + '...' : 'None'
+      );
+
       if (token) {
         try {
+          console.log('📞 Calling getCurrentUser...');
           const response = await apiClient.getCurrentUser();
+          console.log('✅ getCurrentUser success:', response);
           setUser(response.user);
           setIsAuthenticated(true);
           setError(null);
         } catch (error) {
+          console.error('❌ getCurrentUser failed:', error);
           // Token is invalid or expired
           apiClient.setToken(null);
           setIsAuthenticated(false);
@@ -57,13 +65,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsLoading(true);
       setError(null);
 
+      console.log('🔑 Attempting login for:', username);
       const credentials: LoginRequest = { username, password };
       const response = await apiClient.login(credentials);
+      console.log('✅ Login successful:', response);
 
       setUser(response.user);
       setIsAuthenticated(true);
       return true;
     } catch (error: any) {
+      console.error('❌ Login failed:', error);
       setError(error.message || 'Login failed');
       setIsAuthenticated(false);
       setUser(null);

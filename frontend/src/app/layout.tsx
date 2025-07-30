@@ -59,20 +59,7 @@ export default function RootLayout({
   return (
     <html lang='en'>
       <body>
-        <AuthProvider>
-          <nav className='bg-gray-800 text-white p-4'>
-            <div className='container mx-auto'>
-              <Link href='/' className='mr-4'>
-                Home
-              </Link>
-              <Link href='/upload' className='mr-4'>
-                Upload
-              </Link>
-              <Link href='/admin/companies'>Admin</Link>
-            </div>
-          </nav>
-          {children}
-        </AuthProvider>
+        <AuthProvider>{children}</AuthProvider>
       </body>
     </html>
   );

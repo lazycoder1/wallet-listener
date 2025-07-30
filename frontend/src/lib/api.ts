@@ -1,4 +1,5 @@
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+console.log('🔧 API_BASE_URL configured as:', API_BASE_URL);
 
 export interface LoginRequest {
     username: string;
@@ -40,8 +41,13 @@ class ApiClient {
             ...((options.headers as Record<string, string>) || {}),
         };
 
-        if (this.token) {
-            headers['Authorization'] = `Bearer ${this.token}`;
+        // Get fresh token for each request
+        const currentToken = this.getToken();
+        console.log('🌐 Making request to:', url);
+        console.log('🔑 Current token:', currentToken ? currentToken.substring(0, 20) + '...' : 'None');
+
+        if (currentToken) {
+            headers['Authorization'] = `Bearer ${currentToken}`;
         }
 
         const response = await fetch(`${API_BASE_URL}${url}`, {
@@ -64,13 +70,22 @@ class ApiClient {
         if (typeof window !== 'undefined') {
             if (token) {
                 localStorage.setItem('auth_token', token);
+                console.log('🔑 Token stored:', token.substring(0, 20) + '...');
             } else {
                 localStorage.removeItem('auth_token');
+                console.log('🗑️ Token removed');
             }
         }
     }
 
     getToken(): string | null {
+        // Always try to get fresh token from localStorage
+        if (typeof window !== 'undefined') {
+            const storedToken = localStorage.getItem('auth_token');
+            if (storedToken && storedToken !== this.token) {
+                this.token = storedToken;
+            }
+        }
         return this.token;
     }
 
