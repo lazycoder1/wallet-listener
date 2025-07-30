@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Papa, { ParseResult } from 'papaparse';
+import ProtectedAdminLayout from '@/components/ProtectedAdminLayout';
 
 // Define types for what we expect from the backend
 interface BackendImportResponse {
@@ -243,48 +244,49 @@ export default function UploadPage() {
   };
 
   return (
-    <div className='container mx-auto p-4'>
-      <h1 className='text-2xl font-bold mb-4'>Upload Addresses to Backend</h1>
+    <ProtectedAdminLayout>
+      <div className='container mx-auto p-4'>
+        <h1 className='text-2xl font-bold mb-4'>Upload Addresses to Backend</h1>
 
-      <div className='mb-4'>
-        <label htmlFor='companyIdSelect' className='block mb-2'>
-          Company
-        </label>
-        {companiesLoading && <p>Loading companies...</p>}
-        {companiesError && <p className='text-red-500'>{companiesError}</p>}
-        {!companiesLoading && !companiesError && (
-          <select
-            id='companyIdSelect'
-            value={selectedCompanyId}
-            onChange={(e) => setSelectedCompanyId(e.target.value)}
-            className='border p-2 w-full'
-            disabled={filteredCompanies.length === 0}
-          >
-            <option value=''>
-              {filteredCompanies.length === 0
-                ? 'No companies with Slack configured found'
-                : '-- Select a Company --'}
-            </option>
-            {filteredCompanies.map((company) => (
-              <option key={company.id} value={company.id}>
-                {company.name} (ID: {company.id})
+        <div className='mb-4'>
+          <label htmlFor='companyIdSelect' className='block mb-2'>
+            Company
+          </label>
+          {companiesLoading && <p>Loading companies...</p>}
+          {companiesError && <p className='text-red-500'>{companiesError}</p>}
+          {!companiesLoading && !companiesError && (
+            <select
+              id='companyIdSelect'
+              value={selectedCompanyId}
+              onChange={(e) => setSelectedCompanyId(e.target.value)}
+              className='border p-2 w-full'
+              disabled={filteredCompanies.length === 0}
+            >
+              <option value=''>
+                {filteredCompanies.length === 0
+                  ? 'No companies with Slack configured found'
+                  : '-- Select a Company --'}
               </option>
-            ))}
-          </select>
-        )}
-        {!companiesLoading &&
-          filteredCompanies.length === 0 &&
-          !companiesError && (
-            <p className='text-sm text-yellow-700 mt-1'>
-              No companies with active Slack configurations (Channel ID set and
-              enabled) were found. Please configure Slack for a company before
-              uploading addresses for it.
-            </p>
+              {filteredCompanies.map((company) => (
+                <option key={company.id} value={company.id}>
+                  {company.name} (ID: {company.id})
+                </option>
+              ))}
+            </select>
           )}
-      </div>
+          {!companiesLoading &&
+            filteredCompanies.length === 0 &&
+            !companiesError && (
+              <p className='text-sm text-yellow-700 mt-1'>
+                No companies with active Slack configurations (Channel ID set
+                and enabled) were found. Please configure Slack for a company
+                before uploading addresses for it.
+              </p>
+            )}
+        </div>
 
-      {/* Threshold input can remain if it's still relevant as a CSV column override */}
-      {/* <div className='mb-4'>
+        {/* Threshold input can remain if it's still relevant as a CSV column override */}
+        {/* <div className='mb-4'>
         <label className='block mb-2'>
           Company Default Threshold (used if CSV doesn't specify threshold)
         </label>
@@ -303,94 +305,95 @@ export default function UploadPage() {
         </p>
       </div> */}
 
-      <div className='mb-4'>
-        <label className='block mb-2'>Mode</label>
-        <select
-          value={mode}
-          onChange={(e) => setMode(e.target.value.toUpperCase())}
-          className='border p-2 w-full'
+        <div className='mb-4'>
+          <label className='block mb-2'>Mode</label>
+          <select
+            value={mode}
+            onChange={(e) => setMode(e.target.value.toUpperCase())}
+            className='border p-2 w-full'
+          >
+            <option value='REPLACE'>Replace</option>
+            <option value='APPEND'>Append</option>
+          </select>
+        </div>
+        <div className='mb-4'>
+          <label className='block mb-2'>
+            Upload CSV (max 2k rows for sync import)
+          </label>
+          <input
+            type='file'
+            accept='.csv'
+            onChange={handleFileChange}
+            className='border p-2 w-full'
+          />
+          <p className='text-sm text-gray-500 mt-1'>
+            Expected CSV columns: address, chain_type, threshold (optional),
+            account_name (optional), account_manager (optional)
+          </p>
+        </div>
+        <button
+          onClick={handleUploadAndSubmit}
+          disabled={
+            !file ||
+            isProcessing ||
+            !selectedCompanyId ||
+            companiesLoading ||
+            filteredCompanies.length === 0
+          }
+          className='bg-blue-500 text-white p-2 rounded disabled:bg-gray-400'
         >
-          <option value='REPLACE'>Replace</option>
-          <option value='APPEND'>Append</option>
-        </select>
+          {isProcessing
+            ? 'Processing & Submitting...'
+            : 'Parse, Validate & Submit to Backend'}
+        </button>
+
+        {apiError && (
+          <div className='mt-4 p-4 bg-red-100 text-red-700 rounded'>
+            <h2 className='font-bold'>Error</h2>
+            <p>{apiError}</p>
+          </div>
+        )}
+
+        {/* Displaying companyName in summary needs to be handled carefully as it's not directly in BackendImportResponse now */}
+        {uploadSummary && (
+          <div className='mt-4 p-4 bg-green-100 text-green-700 rounded'>
+            <h2 className='font-bold'>Backend Import Summary</h2>
+            <p>Message: {uploadSummary.message}</p>
+            <p>Batch ID: {uploadSummary.batchId}</p>
+            <p>Company ID: {uploadSummary.companyId}</p>
+            {/* <p>Company Name: {uploadSummary.companyName}</p> */}
+            {(() => {
+              const companyDetails = allCompanies.find(
+                (c) => c.id === uploadSummary.companyId
+              );
+              return companyDetails ? (
+                <p>Company Name: {companyDetails.name}</p>
+              ) : null;
+            })()}
+            <p>Mode: {uploadSummary.mode}</p>
+            <p>Total Submitted by Client: {uploadSummary.totalSubmitted}</p>
+            <p>Valid Addresses (by backend): {uploadSummary.validAddresses}</p>
+            <p>
+              Invalid Addresses (by backend): {uploadSummary.invalidAddresses}
+            </p>
+          </div>
+        )}
+
+        {displayedInvalidRows.length > 0 && (
+          <div className='mt-4 p-4 bg-yellow-100 text-yellow-700 rounded'>
+            <h2 className='font-bold'>
+              Client-Side Invalid Rows (Preview - first 10)
+            </h2>
+            <p className='text-sm mb-2'>
+              These rows were not submitted because they failed client-side
+              address validation.
+            </p>
+            <pre className='text-xs overflow-auto'>
+              {JSON.stringify(displayedInvalidRows, null, 2)}
+            </pre>
+          </div>
+        )}
       </div>
-      <div className='mb-4'>
-        <label className='block mb-2'>
-          Upload CSV (max 2k rows for sync import)
-        </label>
-        <input
-          type='file'
-          accept='.csv'
-          onChange={handleFileChange}
-          className='border p-2 w-full'
-        />
-        <p className='text-sm text-gray-500 mt-1'>
-          Expected CSV columns: address, chain_type, threshold (optional),
-          account_name (optional), account_manager (optional)
-        </p>
-      </div>
-      <button
-        onClick={handleUploadAndSubmit}
-        disabled={
-          !file ||
-          isProcessing ||
-          !selectedCompanyId ||
-          companiesLoading ||
-          filteredCompanies.length === 0
-        }
-        className='bg-blue-500 text-white p-2 rounded disabled:bg-gray-400'
-      >
-        {isProcessing
-          ? 'Processing & Submitting...'
-          : 'Parse, Validate & Submit to Backend'}
-      </button>
-
-      {apiError && (
-        <div className='mt-4 p-4 bg-red-100 text-red-700 rounded'>
-          <h2 className='font-bold'>Error</h2>
-          <p>{apiError}</p>
-        </div>
-      )}
-
-      {/* Displaying companyName in summary needs to be handled carefully as it's not directly in BackendImportResponse now */}
-      {uploadSummary && (
-        <div className='mt-4 p-4 bg-green-100 text-green-700 rounded'>
-          <h2 className='font-bold'>Backend Import Summary</h2>
-          <p>Message: {uploadSummary.message}</p>
-          <p>Batch ID: {uploadSummary.batchId}</p>
-          <p>Company ID: {uploadSummary.companyId}</p>
-          {/* <p>Company Name: {uploadSummary.companyName}</p> */}
-          {(() => {
-            const companyDetails = allCompanies.find(
-              (c) => c.id === uploadSummary.companyId
-            );
-            return companyDetails ? (
-              <p>Company Name: {companyDetails.name}</p>
-            ) : null;
-          })()}
-          <p>Mode: {uploadSummary.mode}</p>
-          <p>Total Submitted by Client: {uploadSummary.totalSubmitted}</p>
-          <p>Valid Addresses (by backend): {uploadSummary.validAddresses}</p>
-          <p>
-            Invalid Addresses (by backend): {uploadSummary.invalidAddresses}
-          </p>
-        </div>
-      )}
-
-      {displayedInvalidRows.length > 0 && (
-        <div className='mt-4 p-4 bg-yellow-100 text-yellow-700 rounded'>
-          <h2 className='font-bold'>
-            Client-Side Invalid Rows (Preview - first 10)
-          </h2>
-          <p className='text-sm mb-2'>
-            These rows were not submitted because they failed client-side
-            address validation.
-          </p>
-          <pre className='text-xs overflow-auto'>
-            {JSON.stringify(displayedInvalidRows, null, 2)}
-          </pre>
-        </div>
-      )}
-    </div>
+    </ProtectedAdminLayout>
   );
 }
