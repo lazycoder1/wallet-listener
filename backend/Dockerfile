@@ -11,7 +11,7 @@ COPY prisma ./prisma/
 
 # Install dependencies
 # Using --frozen-lockfile to ensure reproducibility from bun.lockb
-RUN bun install --frozen-lockfile
+RUN rm -f bun.lockb && bun install
 
 # Generate Prisma client
 # The binaryTargets are now specified in the schema.prisma file
