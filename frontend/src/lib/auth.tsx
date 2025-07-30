@@ -7,69 +7,96 @@ import {
   useState,
   ReactNode,
 } from 'react';
+import { apiClient, type LoginRequest, type LoginResponse } from './api';
 
 interface AuthContextType {
   isAuthenticated: boolean;
-  login: (username: string, password: string) => boolean;
-  logout: () => void;
+  user: LoginResponse['user'] | null;
+  login: (username: string, password: string) => Promise<boolean>;
+  logout: () => Promise<void>;
   isLoading: boolean;
+  error: string | null;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-// Admin credentials from environment variables
-const ADMIN_USERNAME = process.env.NEXT_PUBLIC_ADMIN_USERNAME || 'admin';
-const ADMIN_PASSWORD = process.env.NEXT_PUBLIC_ADMIN_PASSWORD || 'admin123';
-
-const AUTH_STORAGE_KEY = 'wallet_watcher_admin_auth';
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [user, setUser] = useState<LoginResponse['user'] | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     // Check if user is already authenticated on mount
-    const storedAuth = localStorage.getItem(AUTH_STORAGE_KEY);
-    if (storedAuth) {
-      try {
-        const authData = JSON.parse(storedAuth);
-        // Check if the session is still valid (expires after 24 hours)
-        const now = new Date().getTime();
-        if (
-          authData.timestamp &&
-          now - authData.timestamp < 24 * 60 * 60 * 1000
-        ) {
+    const checkAuth = async () => {
+      const token = apiClient.getToken();
+      if (token) {
+        try {
+          const response = await apiClient.getCurrentUser();
+          setUser(response.user);
           setIsAuthenticated(true);
-        } else {
-          localStorage.removeItem(AUTH_STORAGE_KEY);
+          setError(null);
+        } catch (error) {
+          // Token is invalid or expired
+          apiClient.setToken(null);
+          setIsAuthenticated(false);
+          setUser(null);
         }
-      } catch (error) {
-        localStorage.removeItem(AUTH_STORAGE_KEY);
       }
-    }
-    setIsLoading(false);
+      setIsLoading(false);
+    };
+
+    checkAuth();
   }, []);
 
-  const login = (username: string, password: string): boolean => {
-    if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
-      const authData = {
-        authenticated: true,
-        timestamp: new Date().getTime(),
-      };
-      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(authData));
+  const login = async (
+    username: string,
+    password: string
+  ): Promise<boolean> => {
+    try {
+      setIsLoading(true);
+      setError(null);
+
+      const credentials: LoginRequest = { username, password };
+      const response = await apiClient.login(credentials);
+
+      setUser(response.user);
       setIsAuthenticated(true);
       return true;
+    } catch (error: any) {
+      setError(error.message || 'Login failed');
+      setIsAuthenticated(false);
+      setUser(null);
+      return false;
+    } finally {
+      setIsLoading(false);
     }
-    return false;
   };
 
-  const logout = () => {
-    localStorage.removeItem(AUTH_STORAGE_KEY);
-    setIsAuthenticated(false);
+  const logout = async (): Promise<void> => {
+    try {
+      await apiClient.logout();
+    } catch (error) {
+      // Continue with logout even if server request fails
+      console.error('Logout error:', error);
+    } finally {
+      setIsAuthenticated(false);
+      setUser(null);
+      setError(null);
+    }
   };
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, login, logout, isLoading }}>
+    <AuthContext.Provider
+      value={{
+        isAuthenticated,
+        user,
+        login,
+        logout,
+        isLoading,
+        error,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

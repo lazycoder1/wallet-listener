@@ -12,14 +12,14 @@ export default function AdminLogin({ onSuccess }: AdminLoginProps) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const { login } = useAuth();
+  const { login, error: authError } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setIsSubmitting(true);
 
-    const success = login(username, password);
+    const success = await login(username, password);
 
     if (success) {
       onSuccess?.();
@@ -42,9 +42,9 @@ export default function AdminLogin({ onSuccess }: AdminLoginProps) {
           </p>
         </div>
         <form className='mt-8 space-y-6' onSubmit={handleSubmit}>
-          {error && (
+          {(error || authError) && (
             <div className='bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative'>
-              {error}
+              {error || authError}
             </div>
           )}
           <div className='space-y-4'>

@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import Papa, { ParseResult } from 'papaparse';
 import ProtectedAdminLayout from '@/components/ProtectedAdminLayout';
+import { apiClient } from '@/lib/api';
 
 // Define types for what we expect from the backend
 interface BackendImportResponse {
@@ -58,19 +59,12 @@ export default function UploadPage() {
     useState<BackendImportResponse | null>(null);
   const [apiError, setApiError] = useState<string | null>(null);
 
-  // Use the consistently named environment variable
-  const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
-
   useEffect(() => {
     const fetchCompanies = async () => {
       setCompaniesLoading(true);
       setCompaniesError(null);
       try {
-        const response = await fetch(`${API_BASE_URL}/companies`);
-        if (!response.ok) {
-          throw new Error(`Failed to fetch companies: ${response.statusText}`);
-        }
-        const data: CompanyWithSlackConfig[] = await response.json();
+        const data: CompanyWithSlackConfig[] = await apiClient.getCompanies();
         setAllCompanies(data);
 
         // Filter companies that have Slack configured and enabled
@@ -90,7 +84,7 @@ export default function UploadPage() {
     };
 
     fetchCompanies();
-  }, [API_BASE_URL]);
+  }, []);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -193,38 +187,18 @@ export default function UploadPage() {
         // and to handle the threshold logic appropriately if companyThreshold is removed or changed.
 
         try {
-          const response = await fetch(`${API_BASE_URL}/imports`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(requestBody),
-          });
+          const responseData = await apiClient.importAddresses(requestBody);
 
-          const responseData = await response.json();
-
-          if (!response.ok) {
-            setApiError(
-              responseData.error ||
-                responseData.message ||
-                'Failed to import addresses.'
-            );
-            if (responseData.details) {
-              setApiError((prev) => `${prev} Details: ${responseData.details}`);
-            }
-            setUploadSummary(null);
-          } else {
-            setUploadSummary(responseData as BackendImportResponse);
-            // Update company name in summary from the selected company, if needed
-            const selectedCompany = allCompanies.find(
-              (c) => c.id === parseInt(selectedCompanyId, 10)
-            );
-            if (selectedCompany && responseData) {
-              (responseData as BackendImportResponse).companyName =
-                selectedCompany.name;
-            }
-            setApiError(null);
+          setUploadSummary(responseData as BackendImportResponse);
+          // Update company name in summary from the selected company, if needed
+          const selectedCompany = allCompanies.find(
+            (c) => c.id === parseInt(selectedCompanyId, 10)
+          );
+          if (selectedCompany && responseData) {
+            (responseData as BackendImportResponse).companyName =
+              selectedCompany.name;
           }
+          setApiError(null);
         } catch (error: any) {
           console.error('Error submitting addresses:', error);
           setApiError(
