@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyPluginAsync, FastifyRequest } from 'fastif
 import companyService from './company.service';
 import type { CompanyParams, CreateCompanyBody, UpdateCompanyBody } from './company.types';
 import { Prisma } from '@prisma/client';
+import { authenticateToken } from '../auth/auth.middleware';
 
 const companyRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
     // POST /companies - Create a new company
@@ -9,6 +10,7 @@ const companyRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
         { Body: CreateCompanyBody }
     >(
         '/', // Route path is now relative to the prefix defined when registering this plugin
+        { preHandler: authenticateToken },
         async (request, reply) => {
             try {
                 // Destructure all expected fields from the body
@@ -33,7 +35,7 @@ const companyRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
     );
 
     // GET /companies - List all companies
-    fastify.get('/', async (request, reply) => {
+    fastify.get('/', { preHandler: authenticateToken }, async (request, reply) => {
         try {
             const companies = await companyService.getAllCompanies();
             reply.send(companies);
@@ -46,7 +48,7 @@ const companyRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
     // GET /companies/:id - Get a single company by ID
     fastify.get<
         { Params: CompanyParams }
-    >('/:id', async (request, reply) => {
+    >('/:id', { preHandler: authenticateToken }, async (request, reply) => {
         try {
             const { id } = request.params;
             const companyId = parseInt(id, 10);
@@ -69,7 +71,7 @@ const companyRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
     // PUT /companies/:id - Update a company
     fastify.put<
         { Body: UpdateCompanyBody, Params: CompanyParams }
-    >('/:id', async (request, reply) => {
+    >('/:id', { preHandler: authenticateToken }, async (request, reply) => {
         try {
             const { id } = request.params;
             const companyId = parseInt(id, 10);
@@ -115,7 +117,7 @@ const companyRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
     // DELETE /companies/:id - Delete a company
     fastify.delete<
         { Params: CompanyParams }
-    >('/:id', async (request, reply) => {
+    >('/:id', { preHandler: authenticateToken }, async (request, reply) => {
         try {
             const { id } = request.params;
             const companyId = parseInt(id, 10);

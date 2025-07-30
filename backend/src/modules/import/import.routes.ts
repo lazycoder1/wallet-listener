@@ -1,12 +1,14 @@
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import importService from './import.service';
 import type { ImportRequestBody } from './import.types';
+import { authenticateToken } from '../auth/auth.middleware';
 
 const importRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
     fastify.post<
         { Body: ImportRequestBody }
     >(
         '/', // Path will be relative to the prefix when registered in index.ts (e.g., /imports)
+        { preHandler: authenticateToken },
         async (request, reply) => {
             try {
                 const { companyId, mode, addresses, original_filename } = request.body;

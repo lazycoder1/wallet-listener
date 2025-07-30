@@ -13,6 +13,7 @@ import companyRoutes from './modules/company/company.routes';
 // import type { ImportAddress, ImportRequestBody } from './modules/import/import.types';
 import importRoutes from './modules/import/import.routes';
 import slackRoutes from './routes/slackRoutes';
+import authRoutes from './modules/auth/auth.routes';
 import { ChainMonitorManager } from './services/monitors/chainMonitorManager';
 import { TokenService } from './services/token/tokenService';
 import { ServiceManager } from './services/serviceManager';
@@ -47,6 +48,7 @@ server.register(cors, {
 });
 
 // Register feature modules
+server.register(authRoutes, { prefix: '/auth' });
 server.register(companyRoutes, { prefix: '/companies' });
 server.register(importRoutes, { prefix: '/imports' });
 server.register(slackRoutes, { prefix: '/api/v1/slack' });
