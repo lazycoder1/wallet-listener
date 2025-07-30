@@ -4,12 +4,21 @@
     "scripts": {
         "dev": "bun --watch src/index.ts",
         "dev:gc": "bun --expose-gc --watch src/index.ts",
+        "dev:node": "tsx watch src/index.ts",
         "start": "bun src/index.ts",
         "start:gc": "bun --expose-gc src/index.ts",
+        "start:node": "tsx src/index.ts",
         "build": "bun build src/index.ts --outdir dist --target bun",
         "start:prod": "bun dist/index.js",
         "start:prod:gc": "bun --expose-gc dist/index.js",
         "setup:admin": "bun scripts/createInitialUser.ts",
+        "setup:admin:node": "tsx scripts/createInitialUser.ts",
+        "verify:login": "bun scripts/verifyLogin.ts",
+        "verify:login:node": "tsx scripts/verifyLogin.ts",
+        "list:users": "bun scripts/listUsers.ts",
+        "list:users:node": "tsx scripts/listUsers.ts",
+        "reset:user": "bun scripts/resetAndCreateUser.ts",
+        "reset:user:node": "tsx scripts/resetAndCreateUser.ts",
         "db:migrate": "npx prisma migrate dev",
         "db:generate": "npx prisma generate"
     },
@@ -36,6 +45,8 @@
     },
     "devDependencies": {
         "prisma": "^5.14.0",
-        "ts-node": "^10.9.2"
+        "ts-node": "^10.9.2",
+        "tsx": "^4.7.1",
+        "@types/node": "^20.11.0"
     }
 }

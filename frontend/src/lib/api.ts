@@ -100,30 +100,30 @@ class ApiClient {
     }
 
     // Companies endpoints
-    async getCompanies() {
-        return this.makeRequest('/companies');
+    async getCompanies(): Promise<any[]> {
+        return this.makeRequest<any[]>('/companies');
     }
 
-    async getCompany(id: number) {
-        return this.makeRequest(`/companies/${id}`);
+    async getCompany(id: number): Promise<any> {
+        return this.makeRequest<any>(`/companies/${id}`);
     }
 
-    async createCompany(data: { name: string; slackConfiguration?: any }) {
-        return this.makeRequest('/companies', {
+    async createCompany(data: { name: string; slackConfiguration?: any }): Promise<any> {
+        return this.makeRequest<any>('/companies', {
             method: 'POST',
             body: JSON.stringify(data),
         });
     }
 
-    async updateCompany(id: number, data: { name?: string; slackConfiguration?: any }) {
-        return this.makeRequest(`/companies/${id}`, {
+    async updateCompany(id: number, data: { name?: string; slackConfiguration?: any }): Promise<any> {
+        return this.makeRequest<any>(`/companies/${id}`, {
             method: 'PUT',
             body: JSON.stringify(data),
         });
     }
 
-    async deleteCompany(id: number) {
-        return this.makeRequest(`/companies/${id}`, {
+    async deleteCompany(id: number): Promise<void> {
+        return this.makeRequest<void>(`/companies/${id}`, {
             method: 'DELETE',
         });
     }
@@ -134,8 +134,8 @@ class ApiClient {
         mode: string;
         addresses: any[];
         original_filename?: string;
-    }) {
-        return this.makeRequest('/imports', {
+    }): Promise<any> {
+        return this.makeRequest<any>('/imports', {
             method: 'POST',
             body: JSON.stringify(data),
         });
