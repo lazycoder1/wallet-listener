@@ -65,7 +65,7 @@ export default function NewCompanyPage() {
   };
 
   return (
-    <div className='container mx-auto p-4'>
+    <div>
       <h1 className='text-2xl font-bold mb-6'>Add New Company</h1>
       {error && (
         <div

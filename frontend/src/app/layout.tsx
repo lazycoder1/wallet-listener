@@ -7,6 +7,7 @@ import '@/styles/globals.css';
 import '@/styles/colors.css';
 
 import { siteConfig } from '@/constant/config';
+import { AuthProvider } from '@/lib/auth';
 
 // !STARTERCONF Change these default meta
 // !STARTERCONF Look at @/constant/config to change them
@@ -58,15 +59,20 @@ export default function RootLayout({
   return (
     <html lang='en'>
       <body>
-        <nav className='bg-gray-800 text-white p-4'>
-          <div className='container mx-auto'>
-            <Link href='/' className='mr-4'>
-              Home
-            </Link>
-            <Link href='/upload'>Upload</Link>
-          </div>
-        </nav>
-        {children}
+        <AuthProvider>
+          <nav className='bg-gray-800 text-white p-4'>
+            <div className='container mx-auto'>
+              <Link href='/' className='mr-4'>
+                Home
+              </Link>
+              <Link href='/upload' className='mr-4'>
+                Upload
+              </Link>
+              <Link href='/admin/companies'>Admin</Link>
+            </div>
+          </nav>
+          {children}
+        </AuthProvider>
       </body>
     </html>
   );
