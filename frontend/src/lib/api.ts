@@ -155,6 +155,14 @@ class ApiClient {
             body: JSON.stringify(data),
         });
     }
+
+    // Slack integration endpoints
+    async generateSlackInstallUrl(companyId: number): Promise<any> {
+        return this.makeRequest<any>('/api/v1/slack/generate-install-url', {
+            method: 'POST',
+            body: JSON.stringify({ companyId }),
+        });
+    }
 }
 
 export const apiClient = new ApiClient();

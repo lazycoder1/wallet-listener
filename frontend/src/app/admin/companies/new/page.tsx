@@ -7,7 +7,8 @@ import CompanyForm, {
 } from '../../../../components/CompanyForm'; // Adjusted path
 import Link from 'next/link';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL; // Your backend URL
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_URL || 'https://api.walletshark.io'; // Your backend URL
 
 // Define the expected API response structure for creating a company
 interface CompanyApiResponse {

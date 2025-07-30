@@ -13,15 +13,20 @@ interface CompanyData extends CompanyFormData {
   // Add other fields like createdAt, updatedAt if needed for display or logic
 }
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL; // Your backend URL
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_URL || 'https://api.walletshark.io'; // Your backend URL
 
 async function fetchCompanyById(id: string): Promise<CompanyData | null> {
-  const res = await fetch(`${API_BASE_URL}/companies/${id}`);
-  if (!res.ok) {
-    if (res.status === 404) return null;
-    throw new Error('Failed to fetch company details from backend');
+  try {
+    console.log('🔍 [EditCompany] Fetching company:', id);
+    const { apiClient } = await import('@/lib/api');
+    const company = await apiClient.getCompany(parseInt(id));
+    console.log('✅ [EditCompany] Company fetched:', company);
+    return company;
+  } catch (error) {
+    console.error('❌ [EditCompany] Failed to fetch company:', error);
+    return null;
   }
-  return res.json();
 }
 
 export default function EditCompanyPage() {

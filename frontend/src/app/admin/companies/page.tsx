@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { apiClient } from '@/lib/api';
 
 interface SlackConfig {
   id: number;
@@ -21,13 +22,10 @@ interface Company {
   updatedAt: string;
 }
 
-// Ensure this points to your backend. The Slack routes are under /api/v1/slack/
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
+// Using apiClient for authenticated requests
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_URL || 'https://api.walletshark.io';
 console.log('CompaniesPage API_BASE_URL:', API_BASE_URL);
-console.log(
-  'CompaniesPage process.env.NEXT_PUBLIC_API_URL:',
-  process.env.NEXT_PUBLIC_API_URL
-);
 
 interface ToastMessage {
   type: 'success' | 'error' | 'info';
@@ -35,11 +33,15 @@ interface ToastMessage {
 }
 
 async function fetchCompanies(): Promise<Company[]> {
-  const res = await fetch(`${API_BASE_URL}/companies`); // Assuming this endpoint exists
-  if (!res.ok) {
+  try {
+    console.log('🏢 [CompaniesPage] Fetching companies using apiClient...');
+    const companies = await apiClient.getCompanies();
+    console.log('✅ [CompaniesPage] Companies fetched:', companies);
+    return companies;
+  } catch (error) {
+    console.error('❌ [CompaniesPage] Failed to fetch companies:', error);
     throw new Error('Failed to fetch companies from backend');
   }
-  return res.json();
 }
 
 export default function CompaniesPage() {
@@ -67,15 +69,8 @@ export default function CompaniesPage() {
   const handleDelete = async (id: number) => {
     if (window.confirm('Are you sure you want to delete this company?')) {
       try {
-        const res = await fetch(`${API_BASE_URL}/companies/${id}`, {
-          method: 'DELETE',
-        });
-        if (!res.ok) {
-          const errorData = await res
-            .json()
-            .catch(() => ({ message: 'Failed to delete company' }));
-          throw new Error(errorData.message || 'Failed to delete company');
-        }
+        console.log('🗑️ [CompaniesPage] Deleting company:', id);
+        await apiClient.deleteCompany(id);
         setCompanies(companies.filter((company) => company.id !== id));
         setToast({ type: 'success', message: 'Company deleted successfully.' });
       } catch (err: any) {
@@ -92,21 +87,13 @@ export default function CompaniesPage() {
   const handleGenerateSlackLink = async (companyId: number) => {
     setToast(null); // Clear previous toast
     try {
-      const res = await fetch(
-        `${API_BASE_URL}/api/v1/slack/generate-install-url`,
-        {
-          // Corrected endpoint
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ companyId }),
-        }
+      console.log(
+        '🔗 [CompaniesPage] Generating Slack link for company:',
+        companyId
       );
+      const data = await apiClient.generateSlackInstallUrl(companyId);
 
-      const data = await res.json();
-
-      if (!res.ok || !data.success) {
+      if (!data.success) {
         throw new Error(
           data.message ||
             data.error?.message ||
