@@ -30,24 +30,9 @@ export default function NewCompanyPage() {
         'Sending to API (new company):',
         JSON.stringify(data, null, 2)
       );
-      const response = await fetch(`${API_BASE_URL}/companies`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(data),
-      });
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({
-          message:
-            'Failed to create company. Please check the details and ensure backend is running.',
-        }));
-        throw new Error(errorData.message || 'Failed to create company');
-      }
-
-      // Optionally, you can use the response data if needed
-      // const newCompany: CompanyApiResponse = await response.json();
+      const { apiClient } = await import('@/lib/api');
+      await apiClient.createCompany(data);
 
       // Redirect to the companies list page on success
       router.push('/admin/companies');

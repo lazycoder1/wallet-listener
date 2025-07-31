@@ -80,21 +80,9 @@ export default function EditCompanyPage() {
         'Sending to API (edit company):',
         JSON.stringify(data, null, 2)
       );
-      const response = await fetch(`${API_BASE_URL}/companies/${id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(data),
-      });
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({
-          message:
-            'Failed to update company. Please check the details and ensure backend is running.',
-        }));
-        throw new Error(errorData.message || 'Failed to update company');
-      }
+      const { apiClient } = await import('@/lib/api');
+      await apiClient.updateCompany(parseInt(id), data);
 
       router.push('/admin/companies');
       // You might want to show a success toast/notification here
