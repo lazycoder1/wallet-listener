@@ -53,6 +53,100 @@ server.register(companyRoutes, { prefix: '/companies' });
 server.register(importRoutes, { prefix: '/imports' });
 server.register(slackRoutes, { prefix: '/api/v1/slack' });
 
+// Unauthenticated routes for Slack installation
+server.get('/public/companies/:id', async (request, reply) => {
+    try {
+        const { id } = request.params as { id: string };
+        const companyId = parseInt(id, 10);
+        if (isNaN(companyId)) {
+            reply.status(400).send({ error: 'Invalid company ID format.' });
+            return;
+        }
+
+        // Get company with Slack configuration
+        const company = await prisma.company.findUnique({
+            where: { id: companyId },
+            include: {
+                slackConfiguration: true
+            }
+        });
+
+        if (!company) {
+            reply.status(404).send({ error: 'Company not found.' });
+            return;
+        }
+
+        reply.send(company);
+    } catch (e: any) {
+        server.log.error(e);
+        reply.status(500).send({ error: 'Internal Server Error' });
+    }
+});
+
+server.post('/public/slack/generate-install-url', async (request, reply) => {
+    try {
+        const { companyId } = request.body as { companyId: number };
+        const { SLACK_CLIENT_ID, SLACK_REDIRECT_URI } = process.env;
+        const scopes = 'chat:write';
+
+        if (!SLACK_CLIENT_ID || !SLACK_REDIRECT_URI) {
+            logger.error('Slack client ID or redirect URI not configured for public generate-install-url');
+            reply.code(500).send({
+                success: false,
+                error: {
+                    code: 'CONFIG_ERROR',
+                    message: 'Slack integration not configured on server.'
+                }
+            });
+            return;
+        }
+
+        // Verify company exists
+        const company = await prisma.company.findUnique({
+            where: { id: companyId }
+        });
+
+        if (!company) {
+            reply.status(404).send({
+                success: false,
+                error: {
+                    code: 'COMPANY_NOT_FOUND',
+                    message: 'Company not found.'
+                }
+            });
+            return;
+        }
+
+        // Import the OAuth state generation function
+        const { generateAndStoreOAuthState } = await import('./services/slackOAuthService');
+
+        const state = await generateAndStoreOAuthState(companyId);
+        const params = new URLSearchParams({
+            client_id: SLACK_CLIENT_ID,
+            scope: scopes,
+            redirect_uri: SLACK_REDIRECT_URI,
+            state: state,
+        });
+        const installUrl = `https://slack.com/oauth/v2/authorize?${params.toString()}`;
+
+        logger.info(`Generated Slack install URL for companyId: ${companyId} (public endpoint)`);
+        return reply.send({
+            success: true,
+            installUrl: installUrl,
+            message: 'Slack installation link generated successfully.'
+        });
+    } catch (err: any) {
+        logger.error(`Error generating Slack install URL for public endpoint: ${err.message || err}`, { errorDetail: err });
+        reply.code(err.httpCode || 500).send({
+            success: false,
+            error: {
+                code: 'URL_GENERATION_FAILED',
+                message: err.description || err.message || 'Failed to generate install link.'
+            }
+        });
+    }
+});
+
 // Initialize Token Service
 const tokenService = TokenService.getInstance();
 

@@ -84,36 +84,10 @@ export default function CompaniesPage() {
     }
   };
 
-  const handleGenerateSlackLink = async (companyId: number) => {
-    setToast(null); // Clear previous toast
-    try {
-      console.log(
-        '🔗 [CompaniesPage] Generating Slack link for company:',
-        companyId
-      );
-      const data = await apiClient.generateSlackInstallUrl(companyId);
-
-      if (!data.success) {
-        throw new Error(
-          data.message ||
-            data.error?.message ||
-            'Failed to generate Slack install link'
-        );
-      }
-
-      if (data.installUrl) {
-        console.log('Slack Install URL for manual copy:', data.installUrl); // Optional: for easier access in dev console
-        setToast({
-          type: 'info', // Changed type to 'info' for manual copy instruction
-          message: `Please copy this Slack Install URL: ${data.installUrl}`,
-        });
-      } else {
-        throw new Error('Install URL not found in response.');
-      }
-    } catch (err: any) {
-      console.error('Generate Slack Link error:', err);
-      setToast({ type: 'error', message: `Error: ${err.message}` });
-    }
+  const handleInstallSlack = (companyId: number) => {
+    // Open the slack installation page in a new tab
+    const installUrl = `/slack-install?company-id=${companyId}`;
+    window.open(installUrl, '_blank');
   };
 
   if (isLoading) return <p>Loading companies...</p>;
@@ -220,11 +194,11 @@ export default function CompaniesPage() {
                       Delete
                     </button>
                     <button
-                      onClick={() => handleGenerateSlackLink(company.id)}
+                      onClick={() => handleInstallSlack(company.id)}
                       className='text-purple-500 hover:text-purple-700'
-                      title='Generate Slack Install Link'
+                      title='Install Slack Integration'
                     >
-                      Generate Link
+                      Install Slack
                     </button>
                   </td>
                 </tr>
