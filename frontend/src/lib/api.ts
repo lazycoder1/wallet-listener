@@ -138,9 +138,28 @@ class ApiClient {
     }
 
     async deleteCompany(id: number): Promise<void> {
-        return this.makeRequest<void>(`/companies/${id}`, {
+        // Get fresh token for DELETE request
+        const currentToken = this.getToken();
+        const headers: Record<string, string> = {};
+
+        if (currentToken) {
+            headers['Authorization'] = `Bearer ${currentToken}`;
+        }
+
+        const response = await fetch(`${API_BASE_URL}/companies/${id}`, {
             method: 'DELETE',
+            headers,
         });
+
+        if (!response.ok) {
+            const errorData: ApiError = await response.json().catch(() => ({
+                error: 'Network error occurred'
+            }));
+            throw new Error(errorData.error || `HTTP ${response.status}`);
+        }
+
+        // Don't try to parse JSON response for DELETE (it should return 204 No Content)
+        return;
     }
 
     // Import endpoints
