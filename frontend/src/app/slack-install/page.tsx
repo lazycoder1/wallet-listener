@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
+import { Suspense } from 'react';
 
 interface SlackConfig {
   id: number;
@@ -41,9 +42,7 @@ async function fetchCompany(companyId: number): Promise<Company> {
   return response.json();
 }
 
-async function generateSlackInstallUrl(
-  companyId: number
-): Promise<{
+async function generateSlackInstallUrl(companyId: number): Promise<{
   success: boolean;
   installUrl?: string;
   message?: string;
@@ -63,7 +62,7 @@ async function generateSlackInstallUrl(
   return response.json();
 }
 
-export default function SlackInstallPage() {
+function SlackInstallContent() {
   const searchParams = useSearchParams();
   const companyIdParam = searchParams.get('company-id');
   const companyId = companyIdParam ? parseInt(companyIdParam, 10) : null;
@@ -368,5 +367,24 @@ export default function SlackInstallPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+function LoadingFallback() {
+  return (
+    <div className='min-h-screen flex items-center justify-center bg-gray-50'>
+      <div className='text-center'>
+        <div className='animate-spin rounded-full h-32 w-32 border-b-2 border-blue-500 mx-auto'></div>
+        <p className='mt-4 text-gray-600'>Loading...</p>
+      </div>
+    </div>
+  );
+}
+
+export default function SlackInstallPage() {
+  return (
+    <Suspense fallback={<LoadingFallback />}>
+      <SlackInstallContent />
+    </Suspense>
   );
 }
