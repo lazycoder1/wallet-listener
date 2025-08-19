@@ -169,7 +169,8 @@ export class SlackNotifierChannel implements NotificationChannel {
                 logger.info(`[SlackNotifierChannel] Attempting to send Slack notification to channel ${slackConfig.channelId} for company ${companyAddress.company.name} (Address: ${depositData.recipientAddress})`);
 
                 try {
-                    await slackClient.chat.postMessage({
+                    const sentAt = new Date();
+                    const slackResp = await slackClient.chat.postMessage({
                         channel: slackConfig.channelId,
                         text: depositData.summaryMessage,
                         blocks: messageBlocks,
@@ -178,8 +179,69 @@ export class SlackNotifierChannel implements NotificationChannel {
                     });
 
                     logger.info(`[SlackNotifierChannel] Successfully sent Slack notification to company ${companyAddress.company.name} for ${depositData.recipientAddress}`);
+
+                    // Persist notification log (success)
+                    await prisma.notificationLog.create({
+                        data: {
+                            companyId: companyAddress.company.id,
+                            timeSent: sentAt,
+                            kind: 'deposit_slack',
+                            channel: 'slack',
+                            payload: {
+                                status: 'sent',
+                                text: depositData.summaryMessage ?? null,
+                                blocks: messageBlocks,
+                                channelId: slackConfig.channelId,
+                                recipientAddress: depositData.recipientAddress,
+                                rawValue: depositData.rawValue,
+                                formattedValue: depositData.formattedValue,
+                                tokenSymbol: depositData.tokenSymbol,
+                                tokenDecimals: depositData.tokenDecimals,
+                                tokenContractAddress: depositData.tokenContractAddress ?? null,
+                                usdValue: usdValue,
+                                transactionHash: depositData.transactionHash,
+                                senderAddress: depositData.senderAddress ?? null,
+                                chain: {
+                                    name: depositData.chainName,
+                                    type: depositData.chainType,
+                                    id: depositData.chainId,
+                                    blockNumber: (typeof depositData.blockNumber === 'bigint')
+                                        ? depositData.blockNumber.toString()
+                                        : (typeof depositData.blockNumber === 'number' ? depositData.blockNumber : null)
+                                },
+                                explorerLink,
+                                thresholdAtSend: alertThresholdNumber,
+                                slack: {
+                                    ts: (slackResp as any)?.ts ? String((slackResp as any).ts) : null,
+                                    channel: (slackResp as any)?.channel ?? slackConfig.channelId
+                                }
+                            }
+                        }
+                    });
                 } catch (slackError) {
                     logger.error(`[SlackNotifierChannel] Error sending Slack notification to company ${companyAddress.company.name}:`, { error: slackError, address: depositData.recipientAddress });
+                    // Persist notification log (failure)
+                    try {
+                        await prisma.notificationLog.create({
+                            data: {
+                                companyId: companyAddress.company.id,
+                                timeSent: new Date(),
+                                kind: 'deposit_slack',
+                                channel: 'slack',
+                                payload: {
+                                    status: 'failed',
+                                    error: (slackError as any)?.message ?? String(slackError),
+                                    recipientAddress: depositData.recipientAddress,
+                                    tokenSymbol: depositData.tokenSymbol,
+                                    usdValue: usdValue,
+                                    transactionHash: depositData.transactionHash,
+                                    chain: { name: depositData.chainName, type: depositData.chainType, id: depositData.chainId }
+                                }
+                            }
+                        });
+                    } catch (logErr) {
+                        logger.warn('[SlackNotifierChannel] Failed to persist notification log for failed Slack send', { error: logErr });
+                    }
                     // Continue with other companies even if one fails
                 }
             }

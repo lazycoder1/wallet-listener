@@ -5,8 +5,8 @@
 // Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
 
 generator client {
-  provider = "prisma-client-js"
-  engineType = "binary"
+  provider      = "prisma-client-js"
+  engineType    = "binary"
   binaryTargets = ["native", "debian-openssl-3.0.x", "linux-arm64-openssl-3.0.x"]
 }
 
@@ -16,23 +16,24 @@ datasource db {
 }
 
 model Company {
-  id                   Int                    @id @default(autoincrement())
-  name                 String                 @unique
-  createdAt            DateTime               @default(now()) @map("created_at")
-  updatedAt            DateTime               @updatedAt @map("updated_at")
-  companyAddresses     CompanyAddress[]
-  importBatches        ImportBatch[]
-  slackConfiguration   SlackConfiguration?
-  alerts               Alert[]
+  id                 Int                 @id @default(autoincrement())
+  name               String              @unique
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+  companyAddresses   CompanyAddress[]
+  importBatches      ImportBatch[]
+  slackConfiguration SlackConfiguration?
+  alerts             Alert[]
+  notificationLogs   NotificationLog[]
 
   @@map("companies")
 }
 
 model Address {
-  id               Int                @id @default(autoincrement())
-  address          String             @unique
-  chainType        String             @map("chain_type")
-  createdAt        DateTime           @default(now()) @map("created_at")
+  id               Int              @id @default(autoincrement())
+  address          String           @unique
+  chainType        String           @map("chain_type")
+  createdAt        DateTime         @default(now()) @map("created_at")
   companyAddresses CompanyAddress[]
   batchAddresses   BatchAddress[]
   alerts           Alert[]
@@ -41,73 +42,73 @@ model Address {
 }
 
 model CompanyAddress {
-  id              Int       @id @default(autoincrement())
-  companyId       Int       @map("company_id")
-  addressId       Int       @map("address_id")
-  isActive        Boolean   @default(true) @map("is_active")
-  lastBalance     Decimal?  @map("last_balance")
-  lastCheckedAt   DateTime? @map("last_checked_at")
-  threshold       Decimal   @default(0) @map("threshold")
-  accountName     String?   @map("account_name")
-  accountManager  String?   @map("account_manager")
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
-  company         Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  address         Address   @relation(fields: [addressId], references: [id], onDelete: Cascade)
+  id             Int       @id @default(autoincrement())
+  companyId      Int       @map("company_id")
+  addressId      Int       @map("address_id")
+  isActive       Boolean   @default(true) @map("is_active")
+  lastBalance    Decimal?  @map("last_balance")
+  lastCheckedAt  DateTime? @map("last_checked_at")
+  threshold      Decimal   @default(0) @map("threshold")
+  accountName    String?   @map("account_name")
+  accountManager String?   @map("account_manager")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  company        Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  address        Address   @relation(fields: [addressId], references: [id], onDelete: Cascade)
 
   @@unique([companyId, addressId], name: "uq_company_address")
   @@map("company_addresses")
 }
 
 model ImportBatch {
-  id                 Int            @id @default(autoincrement())
-  companyId          Int            @map("company_id")
-  importMode         String         @map("import_mode")
-  originalFilename   String?        @map("original_filename")
-  totalRows          Int            @map("total_rows")
-  validRowsCount     Int            @map("valid_rows_count")
-  invalidRowsCount   Int            @map("invalid_rows_count")
-  importedAt         DateTime       @default(now()) @map("imported_at")
-  rawFilePath        String?        @map("raw_file_path")
-  company            Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  batchAddresses     BatchAddress[]
+  id               Int            @id @default(autoincrement())
+  companyId        Int            @map("company_id")
+  importMode       String         @map("import_mode")
+  originalFilename String?        @map("original_filename")
+  totalRows        Int            @map("total_rows")
+  validRowsCount   Int            @map("valid_rows_count")
+  invalidRowsCount Int            @map("invalid_rows_count")
+  importedAt       DateTime       @default(now()) @map("imported_at")
+  rawFilePath      String?        @map("raw_file_path")
+  company          Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  batchAddresses   BatchAddress[]
 
   @@map("import_batches")
 }
 
 model BatchAddress {
-  id           Int      @id @default(autoincrement())
-  batchId      Int      @map("batch_id")
-  addressId    Int      @map("address_id")
-  rowData      Json?    @map("row_data")
-  isValid      Boolean  @map("is_valid")
-  processedAt  DateTime @default(now()) @map("processed_at")
-  importBatch  ImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
-  address      Address  @relation(fields: [addressId], references: [id])
+  id          Int         @id @default(autoincrement())
+  batchId     Int         @map("batch_id")
+  addressId   Int         @map("address_id")
+  rowData     Json?       @map("row_data")
+  isValid     Boolean     @map("is_valid")
+  processedAt DateTime    @default(now()) @map("processed_at")
+  importBatch ImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  address     Address     @relation(fields: [addressId], references: [id])
 
   @@unique([batchId, addressId], name: "uq_batch_address")
   @@map("batch_addresses")
 }
 
 model SlackConfiguration {
-  id                   Int      @id @default(autoincrement())
-  companyId            Int      @unique @map("company_id")
-  channelId            String?  @map("channel_id")
-  channelName          String?  @map("channel_name")
-  alertThreshold       Decimal  @default(0) @map("alert_threshold")
-  isEnabled            Boolean  @default(true) @map("is_enabled")
-  slackTeamId          String   @map("slack_team_id")
-  slackTeamName        String?  @map("slack_team_name")
-  accessToken          String?  @map("access_token")
-  botUserId            String?  @map("bot_user_id")
-  scopes               String?  @map("scopes")
-  slackAppId           String?  @map("slack_app_id")
-  rawOAuthResponse     Json?    @map("raw_oauth_response")
-  installationStatus   String   @default("pending_link") @map("installation_status")
-  lastError            String?  @map("last_error")
-  createdAt            DateTime @default(now()) @map("created_at")
-  updatedAt            DateTime @updatedAt @map("updated_at")
-  company              Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  id                 Int      @id @default(autoincrement())
+  companyId          Int      @unique @map("company_id")
+  channelId          String?  @map("channel_id")
+  channelName        String?  @map("channel_name")
+  alertThreshold     Decimal  @default(0) @map("alert_threshold")
+  isEnabled          Boolean  @default(true) @map("is_enabled")
+  slackTeamId        String   @map("slack_team_id")
+  slackTeamName      String?  @map("slack_team_name")
+  accessToken        String?  @map("access_token")
+  botUserId          String?  @map("bot_user_id")
+  scopes             String?  @map("scopes")
+  slackAppId         String?  @map("slack_app_id")
+  rawOAuthResponse   Json?    @map("raw_oauth_response")
+  installationStatus String   @default("pending_link") @map("installation_status")
+  lastError          String?  @map("last_error")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+  company            Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   @@index([slackTeamId])
   @@map("slack_configurations")
@@ -129,71 +130,88 @@ model SlackOAuthState {
 }
 
 model Alert {
-  id               Int      @id @default(autoincrement())
-  companyId        Int      @map("company_id")
-  addressId        Int      @map("address_id")
-  transactionHash  String   @map("transaction_hash")
-  amount           Decimal
-  tokenSymbol      String?  @map("token_symbol")
-  alertSentAt      DateTime @default(now()) @map("alert_sent_at")
-  slackMessageId   String?  @map("slack_message_id")
-  company          Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  address          Address  @relation(fields: [addressId], references: [id])
+  id              Int      @id @default(autoincrement())
+  companyId       Int      @map("company_id")
+  addressId       Int      @map("address_id")
+  transactionHash String   @map("transaction_hash")
+  amount          Decimal
+  tokenSymbol     String?  @map("token_symbol")
+  alertSentAt     DateTime @default(now()) @map("alert_sent_at")
+  slackMessageId  String?  @map("slack_message_id")
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  address         Address  @relation(fields: [addressId], references: [id])
 
   @@map("alerts")
 }
 
 model Token {
-    id              Int       @id @default(autoincrement())
-    symbol          String    @unique @map("symbol")
-    name            String    @map("name")
-    decimals        Int       @map("decimals")
-    price           Decimal?  @map("price")
-    lastPriceUpdate DateTime? @map("last_price_update")
-    isActive        Boolean   @default(true) @map("is_active")
-    createdAt       DateTime  @default(now()) @map("created_at")
-    updatedAt       DateTime  @updatedAt @map("updated_at")
-    addresses       TokenAddress[]
+  id              Int            @id @default(autoincrement())
+  symbol          String         @unique @map("symbol")
+  name            String         @map("name")
+  decimals        Int            @map("decimals")
+  price           Decimal?       @map("price")
+  lastPriceUpdate DateTime?      @map("last_price_update")
+  isActive        Boolean        @default(true) @map("is_active")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+  addresses       TokenAddress[]
 
-    @@map("tokens")
+  @@map("tokens")
 }
 
 model TokenAddress {
-    id        Int      @id @default(autoincrement())
-    tokenId   Int      @map("token_id")
-    chain     String   @map("chain") // 'ethereum', 'polygon', 'bsc'
-    address   String   @map("address")
-    createdAt DateTime @default(now()) @map("created_at")
-    updatedAt DateTime @updatedAt @map("updated_at")
-    token     Token    @relation(fields: [tokenId], references: [id])
+  id        Int      @id @default(autoincrement())
+  tokenId   Int      @map("token_id")
+  chain     String   @map("chain") // 'ethereum', 'polygon', 'bsc'
+  address   String   @map("address")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  token     Token    @relation(fields: [tokenId], references: [id])
 
-    @@unique([tokenId, chain])
-    @@map("token_addresses")
+  @@unique([tokenId, chain])
+  @@map("token_addresses")
 }
 
 model User {
-    id                Int       @id @default(autoincrement())
-    username          String    @unique
-    email             String?   @unique
-    passwordHash      String    @map("password_hash")
-    isActive          Boolean   @default(true) @map("is_active")
-    lastLoginAt       DateTime? @map("last_login_at")
-    createdAt         DateTime  @default(now()) @map("created_at")
-    updatedAt         DateTime  @updatedAt @map("updated_at")
-    sessions          Session[]
+  id           Int       @id @default(autoincrement())
+  username     String    @unique
+  email        String?   @unique
+  passwordHash String    @map("password_hash")
+  isActive     Boolean   @default(true) @map("is_active")
+  lastLoginAt  DateTime? @map("last_login_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  sessions     Session[]
 
-    @@map("users")
+  @@map("users")
 }
 
 model Session {
-    id          String   @id @default(cuid())
-    userId      Int      @map("user_id")
-    token       String   @unique
-    expiresAt   DateTime @map("expires_at")
-    createdAt   DateTime @default(now()) @map("created_at")
-    user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id        String   @id @default(cuid())
+  userId    Int      @map("user_id")
+  token     String   @unique
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-    @@index([userId])
-    @@index([expiresAt])
-    @@map("sessions")
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model NotificationLog {
+  id        Int      @id @default(autoincrement())
+  companyId Int      @map("company_id")
+  timeSent  DateTime @map("time_sent")
+  kind      String
+  channel   String   @map("channel")
+  payload   Json
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, kind, timeSent])
+  @@index([companyId, timeSent(sort: Desc)])
+  @@map("notification_logs")
 }

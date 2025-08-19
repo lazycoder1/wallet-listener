@@ -187,6 +187,16 @@ export class BalanceService {
     private tokenService: TokenService;
     private clients: Map<number, any> = new Map();
     private chains: EvmChainConfig[];
+    private static readonly ALCHEMY_TO_DB_CHAIN: Record<string, string> = {
+        'eth-mainnet': 'ethereum',
+        'polygon-mainnet': 'polygon',
+        'bnb-mainnet': 'bsc'
+    };
+    private static readonly NATIVE_SYMBOL_BY_NETWORK: Record<string, string> = {
+        'eth-mainnet': 'ETH',
+        'polygon-mainnet': 'MATIC',
+        'bnb-mainnet': 'BNB'
+    };
 
     private constructor() {
         this.tokenService = TokenService.getInstance();
@@ -216,31 +226,245 @@ export class BalanceService {
     // ========================================================================
 
     /**
-     * Get total EVM balance using Alchemy Portfolio API
+     * Get total EVM balance using DB-tracked tokens and DB prices (DEFAULT)
+     * Falls back to 0 on failure.
      */
     public async getTotalBalanceAlchemy(address: string): Promise<number> {
         try {
-            if (!this.isValidEthereumAddress(address)) {
-                throw new Error(`Invalid Ethereum address: ${address}`);
-            }
-
-            const alchemyBalances = await this.fetchAlchemyBalances(address);
-            const totalUsdValue = this.calculateTotalUsdValue(alchemyBalances);
-
-            logger.info('Balance fetch successful', {
+            const { totalUsd } = await this.getAlchemyBreakdownTracked(address);
+            logger.info('Balance fetch (tracked) successful', {
                 address,
-                totalUsdValue: parseFloat(totalUsdValue.toFixed(2))
+                totalUsdValue: parseFloat(totalUsd.toFixed(2))
             });
-
-            return totalUsdValue;
-
+            return totalUsd;
         } catch (error: any) {
-            logger.error('Balance fetch failed', {
+            logger.error('Balance fetch (tracked) failed', {
                 address,
                 error: error.message
             });
             return 0;
         }
+    }
+
+    /**
+     * RAW Alchemy total using Alchemy prices and all tokens (for debugging only)
+     */
+    public async getTotalBalanceAlchemyRaw(address: string): Promise<number> {
+        try {
+            if (!this.isValidEthereumAddress(address)) {
+                throw new Error(`Invalid Ethereum address: ${address}`);
+            }
+            const alchemyBalances = await this.fetchAlchemyBalances(address);
+            const totalUsdValue = this.calculateTotalUsdValue(alchemyBalances);
+            return totalUsdValue;
+        } catch (error) {
+            return 0;
+        }
+    }
+
+    /**
+     * Get detailed Alchemy Portfolio breakdown for debugging.
+     * Returns per-token rows and aggregated totals computed with the same logic used by getTotalBalanceAlchemy.
+     */
+    public async getAlchemyBreakdown(address: string): Promise<{
+        totalUsd: number;
+        rows: Array<{
+            network: string;
+            tokenAddress: string;
+            symbol: string;
+            decimals: number;
+            balanceHex: string;
+            tokenAmount: number;
+            usdPrice: number;
+            usdValue: number;
+        }>;
+        byNetwork: Record<string, number>;
+    }> {
+        if (!this.isValidEthereumAddress(address)) {
+            throw new Error(`Invalid Ethereum address: ${address}`);
+        }
+
+        const balances = await this.fetchAlchemyBalances(address);
+
+        const rows: Array<{
+            network: string;
+            tokenAddress: string;
+            symbol: string;
+            decimals: number;
+            balanceHex: string;
+            tokenAmount: number;
+            usdPrice: number;
+            usdValue: number;
+        }> = [];
+
+        let totalUsd = 0;
+        for (const balance of balances) {
+            try {
+                const usdPrice = this.getUsdPrice(balance.tokenPrices);
+                let decimals = balance.tokenMetadata.decimals;
+                if (decimals === null || decimals === undefined) {
+                    decimals = 18;
+                }
+                const balanceHex = balance.tokenBalance || '0x0';
+                const balanceBigInt = BigInt(balanceHex);
+                const tokenAmount = Number(balanceBigInt) / Math.pow(10, decimals);
+                const usdValue = tokenAmount * usdPrice;
+
+                totalUsd += usdValue;
+
+                rows.push({
+                    network: balance.network,
+                    tokenAddress: balance.tokenAddress ?? 'NATIVE',
+                    symbol: balance.tokenMetadata?.symbol || (balance.tokenAddress ? '-' : 'NATIVE'),
+                    decimals,
+                    balanceHex,
+                    tokenAmount,
+                    usdPrice,
+                    usdValue,
+                });
+            } catch (error) {
+                logger.warn('Error while building breakdown row', {
+                    tokenAddress: balance.tokenAddress,
+                    symbol: balance.tokenMetadata?.symbol,
+                    balanceHex: balance.tokenBalance,
+                    error: error instanceof Error ? error.message : 'Unknown error'
+                });
+            }
+        }
+
+        const byNetwork = rows.reduce<Record<string, number>>((acc, r) => {
+            acc[r.network] = (acc[r.network] || 0) + (isFinite(r.usdValue) ? r.usdValue : 0);
+            return acc;
+        }, {});
+
+        return { totalUsd, rows, byNetwork };
+    }
+
+    /**
+     * Same as getAlchemyBreakdown, but filtered to tokens we track in DB and using DB prices.
+     */
+    public async getAlchemyBreakdownTracked(address: string): Promise<{
+        totalUsd: number;
+        rows: Array<{
+            network: string;
+            tokenAddress: string;
+            symbol: string;
+            decimals: number;
+            balanceHex: string;
+            tokenAmount: number;
+            usdPrice: number;
+            usdValue: number;
+            reason?: string;
+        }>;
+        byNetwork: Record<string, number>;
+    }> {
+        if (!this.isValidEthereumAddress(address)) {
+            throw new Error(`Invalid Ethereum address: ${address}`);
+        }
+
+        // Load tracked tokens with prices from DB
+        const dbTokens = await prisma.token.findMany({
+            where: {
+                isActive: true,
+                price: {
+                    not: null
+                }
+            },
+            include: {
+                addresses: true
+            }
+        });
+
+        const tokenBySymbol: Record<string, typeof dbTokens[number]> = {};
+        const tokenByChainAddress: Record<string, typeof dbTokens[number]> = {};
+        for (const t of dbTokens) {
+            tokenBySymbol[t.symbol.toUpperCase()] = t;
+            for (const a of t.addresses) {
+                const key = `${a.chain}:${a.address.toLowerCase()}`;
+                tokenByChainAddress[key] = t;
+            }
+        }
+
+        const balances = await this.fetchAlchemyBalances(address);
+
+        const rows: Array<{
+            network: string;
+            tokenAddress: string;
+            symbol: string;
+            decimals: number;
+            balanceHex: string;
+            tokenAmount: number;
+            usdPrice: number;
+            usdValue: number;
+            reason?: string;
+        }> = [];
+
+        let totalUsd = 0;
+        for (const balance of balances) {
+            try {
+                // Determine DB chain key
+                const dbChain = BalanceService.ALCHEMY_TO_DB_CHAIN[balance.network];
+                if (!dbChain) {
+                    continue;
+                }
+
+                // Compute token amount using Alchemy decimals
+                let decimals = balance.tokenMetadata.decimals;
+                if (decimals === null || decimals === undefined) {
+                    decimals = 18;
+                }
+                const balanceHex = balance.tokenBalance || '0x0';
+                const tokenAmount = Number(BigInt(balanceHex)) / Math.pow(10, decimals);
+
+                // Resolve DB token
+                let dbToken = null as (typeof dbTokens[number] | null);
+                let tokenAddrOut = balance.tokenAddress ?? 'NATIVE';
+                let symbolOut = balance.tokenMetadata?.symbol || (balance.tokenAddress ? '-' : 'NATIVE');
+
+                if (balance.tokenAddress) {
+                    const key = `${dbChain}:${balance.tokenAddress.toLowerCase()}`;
+                    dbToken = tokenByChainAddress[key] ?? null;
+                } else {
+                    // Native token: match by symbol
+                    const nativeSymbol = BalanceService.NATIVE_SYMBOL_BY_NETWORK[balance.network];
+                    if (nativeSymbol) {
+                        dbToken = tokenBySymbol[nativeSymbol.toUpperCase()] ?? null;
+                        symbolOut = nativeSymbol;
+                        tokenAddrOut = 'NATIVE';
+                    }
+                }
+
+                if (!dbToken || dbToken.price == null) {
+                    // Skip tokens not tracked or without price
+                    continue;
+                }
+
+                const usdPrice = Number(dbToken.price as unknown as number);
+                const usdValue = tokenAmount * usdPrice;
+                totalUsd += usdValue;
+
+                rows.push({
+                    network: balance.network,
+                    tokenAddress: tokenAddrOut,
+                    symbol: symbolOut,
+                    decimals,
+                    balanceHex,
+                    tokenAmount,
+                    usdPrice,
+                    usdValue,
+                });
+            } catch (error) {
+                // Skip problematic entries silently in tracked mode
+                continue;
+            }
+        }
+
+        const byNetwork = rows.reduce<Record<string, number>>((acc, r) => {
+            acc[r.network] = (acc[r.network] || 0) + (isFinite(r.usdValue) ? r.usdValue : 0);
+            return acc;
+        }, {});
+
+        return { totalUsd, rows, byNetwork };
     }
 
     /**
