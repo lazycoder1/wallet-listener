@@ -53,6 +53,12 @@ export default function ProtectedAdminLayout({
               >
                 Upload
               </Link>
+              <Link
+                href='/admin/reports'
+                className='text-gray-600 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium'
+              >
+                Reports
+              </Link>
               <button
                 onClick={logout}
                 className='bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-md text-sm font-medium'

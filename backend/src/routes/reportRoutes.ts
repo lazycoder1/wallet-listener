@@ -53,23 +53,14 @@ const reportRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
                     orderBy: { timeSent: 'asc' },
                 });
 
+                // Minimal CSV: transaction hash, transaction time, recipient address, token, USD value, account manager
                 const headers = [
-                    'company_id',
-                    'company_name',
-                    'time_sent_utc',
-                    'kind',
-                    'channel',
-                    'status',
-                    'error',
-                    'recipient_address',
-                    'token_symbol',
-                    'usd_value',
                     'transaction_hash',
-                    'chain_name',
-                    'chain_type',
-                    'block_number',
-                    'slack_ts',
-                    'text',
+                    'transaction_time_utc',
+                    'recipient_address',
+                    'token',
+                    'usd_value',
+                    'account_manager',
                 ];
 
                 const rows: string[] = [];
@@ -77,22 +68,13 @@ const reportRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
                 for (const log of logs) {
                     const payload: any = log.payload as any;
                     const line = [
-                        formatCsvValue(log.companyId),
-                        formatCsvValue(log.company?.name ?? ''),
+                        formatCsvValue(payload?.transactionHash ?? ''),
+                        // Using log.timeSent as transaction time proxy
                         formatCsvValue(log.timeSent.toISOString()),
-                        formatCsvValue(log.kind),
-                        formatCsvValue(log.channel),
-                        formatCsvValue(payload?.status ?? ''),
-                        formatCsvValue(payload?.error ?? ''),
                         formatCsvValue(payload?.recipientAddress ?? ''),
                         formatCsvValue(payload?.tokenSymbol ?? ''),
                         formatCsvValue(payload?.usdValue ?? ''),
-                        formatCsvValue(payload?.transactionHash ?? ''),
-                        formatCsvValue(payload?.chain?.name ?? ''),
-                        formatCsvValue(payload?.chain?.type ?? ''),
-                        formatCsvValue(payload?.chain?.blockNumber ?? ''),
-                        formatCsvValue(payload?.slack?.ts ?? ''),
-                        formatCsvValue(payload?.text ?? ''),
+                        formatCsvValue((payload?.accountManager ?? (payload?.account_manager ?? ''))),
                     ].join(',');
                     rows.push(line);
                 }
