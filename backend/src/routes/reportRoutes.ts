@@ -53,13 +53,14 @@ const reportRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
                     orderBy: { timeSent: 'asc' },
                 });
 
-                // Minimal CSV: transaction hash, transaction time, recipient address, token, USD value, account manager
+                // Minimal CSV: transaction hash, transaction time, recipient address, token, USD value, account name
                 const headers = [
                     'transaction_hash',
                     'transaction_time_utc',
                     'recipient_address',
                     'token',
                     'usd_value',
+                    'account_name',
                     'account_manager',
                 ];
 
@@ -74,7 +75,9 @@ const reportRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
                         formatCsvValue(payload?.recipientAddress ?? ''),
                         formatCsvValue(payload?.tokenSymbol ?? ''),
                         formatCsvValue(payload?.usdValue ?? ''),
+                        formatCsvValue((payload?.accountName ?? (payload?.account_name ?? ''))),
                         formatCsvValue((payload?.accountManager ?? (payload?.account_manager ?? ''))),
+
                     ].join(',');
                     rows.push(line);
                 }
