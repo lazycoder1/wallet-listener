@@ -67,6 +67,32 @@ const reportRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
                 rows.push(headers.join(','));
                 for (const log of logs) {
                     const payload: any = log.payload as any;
+
+                    // Resolve account manager: prefer payload; if missing, look up from DB
+                    let accountManagerValue: string = '';
+                    try {
+                        accountManagerValue = (payload?.accountManager ?? payload?.account_manager ?? '') as string;
+                        if (!accountManagerValue) {
+                            const recipientAddress = payload?.recipientAddress ?? '';
+                            const chainType = payload?.chain?.type as string | undefined;
+
+                            const addressFilter: any = { address: recipientAddress };
+                            if (chainType) addressFilter.chainType = chainType;
+
+                            const companyAddress = await prisma.companyAddress.findFirst({
+                                where: {
+                                    companyId: (log as any).companyId,
+                                    isActive: true,
+                                    address: addressFilter,
+                                },
+                                select: { accountManager: true },
+                            });
+                            if (companyAddress?.accountManager) {
+                                accountManagerValue = companyAddress.accountManager;
+                            }
+                        }
+                    } catch { }
+
                     const line = [
                         formatCsvValue(payload?.transactionHash ?? ''),
                         // Using log.timeSent as transaction time proxy
@@ -74,7 +100,7 @@ const reportRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
                         formatCsvValue(payload?.recipientAddress ?? ''),
                         formatCsvValue(payload?.tokenSymbol ?? ''),
                         formatCsvValue(payload?.usdValue ?? ''),
-                        formatCsvValue((payload?.accountManager ?? (payload?.account_manager ?? ''))),
+                        formatCsvValue(accountManagerValue),
 
                     ].join(',');
                     rows.push(line);
