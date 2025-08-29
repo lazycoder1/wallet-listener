@@ -130,7 +130,7 @@ class ApiClient {
         });
     }
 
-    async updateCompany(id: number, data: { name?: string; slackConfiguration?: any }): Promise<any> {
+    async updateCompany(id: number, data: { name?: string; slackConfiguration?: any; dailyReportsEnabled?: boolean; dailyReportsEmail?: string | null }): Promise<any> {
         return this.makeRequest<any>(`/companies/${id}`, {
             method: 'PUT',
             body: JSON.stringify(data),

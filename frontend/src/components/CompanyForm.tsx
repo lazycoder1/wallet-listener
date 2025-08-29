@@ -12,6 +12,8 @@ interface SlackConfigData {
 export interface CompanyFormData {
   name: string;
   slackConfiguration?: SlackConfigData;
+  dailyReportsEnabled?: boolean;
+  dailyReportsEmail?: string | null;
 }
 
 interface CompanyFormProps {
@@ -30,6 +32,8 @@ const CompanyForm: React.FC<CompanyFormProps> = ({
       alertThreshold: '0',
       isEnabled: true,
     },
+    dailyReportsEnabled: false,
+    dailyReportsEmail: '',
   },
   onSubmit,
   isSubmitting,
@@ -47,6 +51,8 @@ const CompanyForm: React.FC<CompanyFormProps> = ({
           ? true
           : initialData.slackConfiguration.isEnabled,
     },
+    dailyReportsEnabled: initialData.dailyReportsEnabled ?? false,
+    dailyReportsEmail: initialData.dailyReportsEmail ?? '',
   });
 
   useEffect(() => {
@@ -63,6 +69,8 @@ const CompanyForm: React.FC<CompanyFormProps> = ({
             ? true
             : initialData.slackConfiguration.isEnabled,
       },
+      dailyReportsEnabled: initialData.dailyReportsEnabled ?? false,
+      dailyReportsEmail: initialData.dailyReportsEmail ?? '',
     });
   }, [
     initialData.name,
@@ -70,6 +78,8 @@ const CompanyForm: React.FC<CompanyFormProps> = ({
     initialData.slackConfiguration?.channelName,
     initialData.slackConfiguration?.alertThreshold,
     initialData.slackConfiguration?.isEnabled,
+    initialData.dailyReportsEnabled,
+    initialData.dailyReportsEmail,
   ]);
 
   const handleChange = (
@@ -88,6 +98,16 @@ const CompanyForm: React.FC<CompanyFormProps> = ({
               ? (e.target as HTMLInputElement).checked
               : value,
         },
+      }));
+    } else if (name === 'dailyReportsEnabled') {
+      setFormData((prev) => ({
+        ...prev,
+        dailyReportsEnabled: (e.target as HTMLInputElement).checked,
+      }));
+    } else if (name === 'dailyReportsEmail') {
+      setFormData((prev) => ({
+        ...prev,
+        dailyReportsEmail: value,
       }));
     } else {
       setFormData((prev) => ({
@@ -209,6 +229,48 @@ const CompanyForm: React.FC<CompanyFormProps> = ({
             >
               Enable Slack Notifications
             </label>
+          </div>
+        </div>
+      </fieldset>
+
+      <fieldset className='border p-4 rounded-md'>
+        <legend className='text-lg font-medium text-gray-900 px-1'>
+          Daily Reports
+        </legend>
+        <div className='space-y-4 mt-2'>
+          <div className='flex items-center'>
+            <input
+              type='checkbox'
+              name='dailyReportsEnabled'
+              id='dailyReportsEnabled'
+              checked={!!formData.dailyReportsEnabled}
+              onChange={handleChange}
+              className='h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500'
+            />
+            <label
+              htmlFor='dailyReportsEnabled'
+              className='ml-2 block text-sm text-gray-900'
+            >
+              Enable Daily Email Report
+            </label>
+          </div>
+          <div>
+            <label
+              htmlFor='dailyReportsEmail'
+              className='block text-sm font-medium text-gray-700'
+            >
+              Recipient Email
+            </label>
+            <input
+              type='email'
+              name='dailyReportsEmail'
+              id='dailyReportsEmail'
+              value={formData.dailyReportsEmail || ''}
+              onChange={handleChange}
+              placeholder='reports@company.com'
+              className='mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm'
+              disabled={!formData.dailyReportsEnabled}
+            />
           </div>
         </div>
       </fieldset>

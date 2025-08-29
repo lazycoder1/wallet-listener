@@ -30,10 +30,12 @@ const buildSlackConfigPayload = (configInput: SlackConfigurationInput): any => {
 
 export class CompanyService {
     async createCompany(data: CreateCompanyBody) {
-        const { name, slackConfiguration: slackConfigInput } = data;
+        const { name, slackConfiguration: slackConfigInput, dailyReportsEnabled, dailyReportsEmail } = data;
 
         const companyCreateData: Prisma.CompanyCreateInput = {
             name: name.trim(),
+            dailyReportsEnabled: dailyReportsEnabled ?? false,
+            dailyReportsEmail: dailyReportsEmail ?? null,
         };
 
         // Only create a slack configuration if a slackTeamId is provided.
@@ -88,7 +90,7 @@ export class CompanyService {
     }
 
     async updateCompanyById(id: number, data: UpdateCompanyBody) {
-        const { name, slackConfiguration: slackConfigInput } = data;
+        const { name, slackConfiguration: slackConfigInput, dailyReportsEnabled, dailyReportsEmail } = data;
 
         if (!name && (!slackConfigInput || Object.keys(slackConfigInput).length === 0)) {
             throw new Error("No data provided for update. Name or non-empty slackConfiguration must be present.");
@@ -97,6 +99,12 @@ export class CompanyService {
         const companyUpdateData: any = {}; // Changed to any
         if (name) {
             companyUpdateData.name = name.trim();
+        }
+        if (dailyReportsEnabled !== undefined) {
+            companyUpdateData.dailyReportsEnabled = dailyReportsEnabled;
+        }
+        if (dailyReportsEmail !== undefined) {
+            companyUpdateData.dailyReportsEmail = dailyReportsEmail;
         }
 
         if (slackConfigInput && Object.keys(slackConfigInput).length > 0) {

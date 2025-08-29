@@ -17,9 +17,13 @@ export interface SlackConfigurationInput {
 export interface CreateCompanyBody {
     name: string;
     slackConfiguration?: SlackConfigurationInput;
+    dailyReportsEnabled?: boolean;
+    dailyReportsEmail?: string | null;
 }
 
 export interface UpdateCompanyBody {
     name?: string; // Name becomes optional for updates if only Slack config is changing
     slackConfiguration?: SlackConfigurationInput;
+    dailyReportsEnabled?: boolean;
+    dailyReportsEmail?: string | null;
 } 

@@ -192,6 +192,7 @@ export class SlackNotifierChannel implements NotificationChannel {
                                 text: depositData.summaryMessage ?? null,
                                 blocks: messageBlocks,
                                 channelId: slackConfig.channelId,
+                                accountManager: accountManager,
                                 recipientAddress: depositData.recipientAddress,
                                 rawValue: depositData.rawValue,
                                 formattedValue: depositData.formattedValue,
@@ -231,6 +232,7 @@ export class SlackNotifierChannel implements NotificationChannel {
                                 payload: {
                                     status: 'failed',
                                     error: (slackError as any)?.message ?? String(slackError),
+                                    accountManager: accountManager,
                                     recipientAddress: depositData.recipientAddress,
                                     tokenSymbol: depositData.tokenSymbol,
                                     usdValue: usdValue,

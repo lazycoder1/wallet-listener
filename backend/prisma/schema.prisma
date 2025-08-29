@@ -25,6 +25,8 @@ model Company {
   slackConfiguration SlackConfiguration?
   alerts             Alert[]
   notificationLogs   NotificationLog[]
+  dailyReportsEnabled Boolean             @default(false) @map("daily_reports_enabled")
+  dailyReportsEmail   String?             @map("daily_reports_email")
 
   @@map("companies")
 }
