@@ -2,10 +2,10 @@
     "name": "wallet-watcher-backend",
     "version": "0.1.0",
     "scripts": {
-        "dev": "bun --watch src/index.ts",
+        "dev": "NODE_ENV=development bun --watch src/index.ts",
         "dev:gc": "bun --expose-gc --watch src/index.ts",
         "dev:node": "tsx watch src/index.ts",
-        "start": "bun src/index.ts",
+        "start": "NODE_ENV=production bun src/index.ts",
         "start:gc": "bun --expose-gc src/index.ts",
         "start:node": "tsx src/index.ts",
         "build": "bun build src/index.ts --outdir dist --target bun",
@@ -20,6 +20,16 @@
         "reset:user": "bun scripts/resetAndCreateUser.ts",
         "reset:user:node": "tsx scripts/resetAndCreateUser.ts",
         "db:migrate": "npx prisma migrate dev",
+        "db:deploy": "npx prisma migrate deploy",
+        "db:reset": "npx prisma migrate reset --force",
+        "dev:dotenv": "dotenv -e .env.development -- bun --watch src/index.ts",
+        "prod:dotenv": "dotenv -e .env.production -- bun src/index.ts",
+        "db:migrate:testing": "bash -lc 'export PRISMA_SKIP_ENV_LOAD=1; set -o allexport; source .env.testing; set +o allexport; npx prisma migrate dev'",
+        "db:deploy:testing": "bash -lc 'export PRISMA_SKIP_ENV_LOAD=1; set -o allexport; source .env.testing; set +o allexport; npx prisma migrate deploy'",
+        "db:reset:testing": "bash -lc 'export PRISMA_SKIP_ENV_LOAD=1; set -o allexport; source .env.testing; set +o allexport; npx prisma migrate reset --force'",
+        "start:testing": "bash -lc 'export PRISMA_SKIP_ENV_LOAD=1; set -o allexport; source .env.testing; set +o allexport; bun src/index.ts'",
+        "setup:admin:testing": "bash -lc 'export PRISMA_SKIP_ENV_LOAD=1; set -o allexport; source .env.testing; set +o allexport; bun scripts/createInitialUser.ts'",
+        "reset:user:testing": "bash -lc 'export PRISMA_SKIP_ENV_LOAD=1; set -o allexport; source .env.testing; set +o allexport; bun scripts/resetAndCreateUser.ts'",
         "db:generate": "npx prisma generate"
     },
     "dependencies": {
@@ -44,9 +54,11 @@
         "winston": "^3.17.0"
     },
     "devDependencies": {
+        "@types/node": "^20.11.0",
+        "dotenv-cli": "^10.0.0",
+        "dotenv-flow": "^4.1.0",
         "prisma": "^5.14.0",
         "ts-node": "^10.9.2",
-        "tsx": "^4.7.1",
-        "@types/node": "^20.11.0"
+        "tsx": "^4.7.1"
     }
 }

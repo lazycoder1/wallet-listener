@@ -1,8 +1,7 @@
-import dotenv from 'dotenv';
+import 'dotenv-flow/config';
 import { Chain } from 'viem'; // Import Chain type
 import { mainnet, polygon, bsc } from 'viem/chains'; // Import specific chain objects
 
-dotenv.config(); // Load .env file
 
 interface NetworkConfig {
     wsUrl: string;
