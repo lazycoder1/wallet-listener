@@ -24,12 +24,12 @@
         "db:reset": "npx prisma migrate reset --force",
         "dev:dotenv": "dotenv -e .env.development -- bun --watch src/index.ts",
         "prod:dotenv": "dotenv -e .env.production -- bun src/index.ts",
-        "db:migrate:testing": "bash -lc 'export PRISMA_SKIP_ENV_LOAD=1; set -o allexport; source .env.testing; set +o allexport; npx prisma migrate dev'",
-        "db:deploy:testing": "bash -lc 'export PRISMA_SKIP_ENV_LOAD=1; set -o allexport; source .env.testing; set +o allexport; npx prisma migrate deploy'",
-        "db:reset:testing": "bash -lc 'export PRISMA_SKIP_ENV_LOAD=1; set -o allexport; source .env.testing; set +o allexport; npx prisma migrate reset --force'",
-        "start:testing": "bash -lc 'export PRISMA_SKIP_ENV_LOAD=1; set -o allexport; source .env.testing; set +o allexport; bun src/index.ts'",
-        "setup:admin:testing": "bash -lc 'export PRISMA_SKIP_ENV_LOAD=1; set -o allexport; source .env.testing; set +o allexport; bun scripts/createInitialUser.ts'",
-        "reset:user:testing": "bash -lc 'export PRISMA_SKIP_ENV_LOAD=1; set -o allexport; source .env.testing; set +o allexport; bun scripts/resetAndCreateUser.ts'",
+        "db:migrate:development": "bash -lc 'export PRISMA_SKIP_ENV_LOAD=1; set -o allexport; source .env.development; set +o allexport; npx prisma migrate dev'",
+        "db:deploy:development": "bash -lc 'export PRISMA_SKIP_ENV_LOAD=1; set -o allexport; source .env.development; set +o allexport; npx prisma migrate deploy'",
+        "db:reset:development": "bash -lc 'export PRISMA_SKIP_ENV_LOAD=1; set -o allexport; source .env.development; set +o allexport; npx prisma migrate reset --force'",
+        "start:development": "bash -lc 'export PRISMA_SKIP_ENV_LOAD=1; set -o allexport; source .env.development; set +o allexport; bun src/index.ts'",
+        "setup:admin:development": "bash -lc 'export PRISMA_SKIP_ENV_LOAD=1; set -o allexport; source .env.development; set +o allexport; bun scripts/createInitialUser.ts'",
+        "reset:user:development": "bash -lc 'export PRISMA_SKIP_ENV_LOAD=1; set -o allexport; source .env.development; set +o allexport; bun scripts/resetAndCreateUser.ts'",
         "db:generate": "npx prisma generate"
     },
     "dependencies": {

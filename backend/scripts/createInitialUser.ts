@@ -3,6 +3,9 @@ import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
+console.log(process.env.INITIAL_ADMIN_USERNAME);
+console.log(process.env.DATABASE_URL);
+
 async function createInitialUser() {
     try {
         // Check if any users exist
@@ -14,8 +17,8 @@ async function createInitialUser() {
         }
 
         // Default credentials
-        const username = process.env.INITIAL_ADMIN_USERNAME || 'WalletShark';
-        const password = process.env.INITIAL_ADMIN_PASSWORD || 'SharkWall@123!';
+        const username = process.env.INITIAL_ADMIN_USERNAME || 'test';
+        const password = process.env.INITIAL_ADMIN_PASSWORD || 'test';
         const email = process.env.INITIAL_ADMIN_EMAIL || 'shark@walletshark.io';
 
         // Hash password
