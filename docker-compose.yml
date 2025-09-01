@@ -11,6 +11,8 @@ services:
         environment:
             # Tell the JS engine to use a heap size that fits within the container's memory limit
             NODE_OPTIONS: "--max-old-space-size=896"
+        env_file:
+            - ./backend/.env
         command: ["bun", "--expose-gc", "src/index.ts"] # Override to enable garbage collection
         volumes:
             [] # Ensure this is an array, even if empty or items are commented out
@@ -26,10 +28,10 @@ services:
         build:
             context: ./frontend
             dockerfile: Dockerfile
-            args: # This 'args' section is crucial for build-time variables
-                NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL} # Gets value from env_file or shell
         ports:
             - "3000:3000" # Exposes frontend on host port 3000, mapping to container port 3000
+        env_file:
+            - ./frontend/.env
         depends_on:
             - backend # Ensures backend starts before frontend, useful if frontend fetches data on build/start
         networks:
