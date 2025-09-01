@@ -1,0 +1,11 @@
+services:
+    backend:
+        env_file:
+            - ./backend/.env.testing
+        environment:
+            NODE_ENV: development
+    frontend:
+        env_file:
+            - ./frontend/.env.testing
+        environment:
+            NODE_ENV: development
